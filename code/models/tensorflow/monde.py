@@ -1,6 +1,6 @@
 import json
 
-import conf
+from conf import conf
 import  models.tensorflow.mykeras.layers as mylayers
 import tensorflow as tf
 
@@ -14,7 +14,6 @@ class MONDE(tf.keras.models.Model):
 
     def __init__(self, cov_type, arch_hxy, arch_x_transform = None ,
                  arch_cov_transform =None, hxy_x_size = 0, covariance_learning_rate = None,
-                 positive_transform = "square",
                  input_event_shape=None, covariate_shape=None, **kwargs):
         super().__init__(**kwargs)
 
@@ -27,10 +26,11 @@ class MONDE(tf.keras.models.Model):
             if not arch_cov_transform:
                 raise ValueError("arch_cov missing")
             self._arch_cov_transform = arch_cov_transform
+        else:
+            self._arch_cov_transform = None
 
         self._arch_hxy = arch_hxy
         self._arch_x_transform = arch_x_transform
-        self._positive_transform = positive_transform
         self._hxy_x_size = hxy_x_size
         self._covariance_learning_rate = covariance_learning_rate
 
@@ -43,15 +43,16 @@ class MONDE(tf.keras.models.Model):
         self._input_event_shape = input_shape[0]
         self._covariate_shape = input_shape[1]
         self._y_size = input_shape[0][-1]
+        self._x_size = input_shape[1][-1]
 
         if self._arch_x_transform:
             self._x_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation='sigmoid')
-                                                   for units in self._arch_x_transform], name="x_tansform")
+                                                   for units in self._arch_x_transform], name="x_transform")
 
         mon_size_ins = [1] + [units - self._hxy_x_size for units in self._arch_hxy]
         non_mon_size_ins = [self._arch_x_transform[-1]] + [self._hxy_x_size for _ in self._arch_hxy]
         mon_size_outs = [units - self._hxy_x_size for units in self._arch_hxy] + [1]
-        non_mon_size_outs = [self._hxy_x_size for _ in self._arch_hxy[:-1]] + [0]
+        non_mon_size_outs = [self._hxy_x_size for _ in self._arch_hxy] + [0]
 
         self._h_xys_transforms = [tfk.Sequential(
             layers=[mylayers.Dense(units, activation='sigmoid',
@@ -59,20 +60,65 @@ class MONDE(tf.keras.models.Model):
                                                                                   mon_size_out, non_mon_size_out),
                                    name="h_xy_%d_%d" % (i, layer))
                     for layer, units, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out in
-                    zip(range(len(self._arch_hxy)), self._arch_hxy, mon_size_ins, non_mon_size_ins, mon_size_outs,
+                    zip(range(len(self._arch_hxy)+1), self._arch_hxy, mon_size_ins, non_mon_size_ins, mon_size_outs,
                         non_mon_size_outs)]
             , name="h_xy_%d" % i) for i in range(self._y_size)]
 
-        self._cov_var = tf.Variable(tf.initializers.constant()(np.full((self._y_size, self._y_size), np.nan)), name="cov_var",
-                                    dtype=getattr(tf, "float%s" % conf.precision), trainable=False)
+        if self._arch_cov_transform:
+            self._cov_transform = tfk.Sequential(layers=[tfk.Dense(units, activation="tanh", name="cov_layer_%d" % i,
+                                                                   kernel_initializer=tf.initializers.random_normal(mean=0, stddev=0.01))
+                                                         for i, units in enumerate(self._arch_cov_transform)])
+        else:
+            self._cov_var = tf.Variable(tfk.initializers.constant(np.nan)((self._y_size, self._y_size)),
+                                        name="cov_var",
+                                        dtype=getattr(tf, "float%s" % conf.precision), trainable=False)
+
+        ######
+        if self._cov_type in ['param_cov', 'param_cor', None]:
+            if self._x_size > 0:
+                if self._arch_cov_transform:
+                    last_hidden_units_size = self._arch_cov_transform[-1]
+                    init = tf.initializers.random_normal(mean=0, stddev=0.01)
+
+                    self._W_cov_u = tf.Variable(init(shape=[int(last_hidden_units_size / 2), self._y_size]),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="W_cov_u")
+
+                    self._b_cov_u = tf.Variable(tf.initializers.zeros()(shape=[1, self._y_size]),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="b_cov_u")
+
+                    self._W_cov_d = tf.Variable(init(shape=[last_hidden_units_size - int(last_hidden_units_size / 2), self._y_size]),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="W_cov_d")
+
+                    self._b_cov_d = tf.Variable(tf.initializers.zeros()(shape=[1, self._y_size]),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="b_cov_d")
+
+                else:
+                    raise ValueError("missing arch_cov_transform")
+            else:
+                self._cov_u = tf.Variable(tf.initializers.zeros()(shape=(1, self._y_size)),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
+                self._cov_d_raw = tf.Variable(tf.initializers.zeros()(shape=(1, self._y_size)),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_d_raw")
+
+        if self._cov_type == "param_cor":
+            r = self.cor_rank if hasattr(self, "cor_rank") else self._y_size
+            num_theta = int((r - 1) * (self._y_size - r / 2))
+            if self._x_size > 0:
+                self._theta_transform = tfk.Dense(num_theta, name="cov")
+            else:
+                self._cov_u=tf.Variable(tf.initializers.zeros()(shape=(1, num_theta)),
+                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
+
 
         super(MONDE, self).build(list(input_shape))
 
+    @tf.function
     def call(self, inputs):
         return self.log_prob(inputs[0], inputs[1])
 
+    @tf.function
     def prob(self, y, x, marginal=None, training=False):
-        return self.mixture(x, marginal).prob(y)
+        return tf.math.exp(self.log_prob(y, x, marginal, training))
 
     @tf.function
     def log_prob(self, y, x, marginal=None, marginals=None, training=False):
@@ -94,18 +140,19 @@ class MONDE(tf.keras.models.Model):
 
         for i in range(self._y_size):
             y_margin = tf.slice(y, [0, i], size=[-1, 1])
-            if x:
-                yx = tfk.layers.Concatenate()([y_margin, x])
-            else:
-                yx = y_margin
-
-            cdf = self._h_xys_transforms[i](yx)
-            cdfs.append(cdf)
 
             with tf.GradientTape(watch_accessed_variables=False) as tape:
                 tape.watch(y_margin)
-                grads = tape.gradient(cdfs[i], y_margin)
+                if x is not None:
+                    yx = tfk.layers.Concatenate()([y_margin, x])
+                else:
+                    yx = y_margin
 
+                cdf = self._h_xys_transforms[i](yx)
+
+                grads = tape.gradient(cdf, y_margin)
+
+            cdfs.append(cdf)
             pdfs.append(grads)
         return cdfs, pdfs
 
@@ -117,7 +164,7 @@ class MONDE(tf.keras.models.Model):
             predictions["cdf%d" % i] = cdf
             if pdf is not None:
                 predictions["pdf%d" % i] = pdf
-                lls.append(tf.log(pdf + 1e-27))
+                lls.append(tf.math.log(pdf + 1e-27))
             else:
                 lls.append(None)
 
@@ -217,45 +264,17 @@ class MONDE(tf.keras.models.Model):
         if x is not None:
             layer = x
             if self._arch_cov_transform:
-                init = tf.initializers.random_normal(mean=0, stddev=0.01)
-                for i, units in enumerate(self._arch_cov_transform):
-                    layer = tf.layers.dense(layer, units=units, activation="tanh", name="cov_layer_%d" % i,
-                                            kernel_initializer=init)
-                    last_hidden_units_size = units
+                last_hidden_units_size = self._arch_cov_transform[-1]
+                layer = self._cov_transform(layer)
                 layer_u = tf.slice(layer, [0, 0], [-1, int(last_hidden_units_size / 2)])
                 layer_d = tf.slice(layer, [0, int(last_hidden_units_size / 2)], [-1, -1])
 
-                W_cov_u = tf.get_variable("W_cov_u", shape=[int(last_hidden_units_size / 2), dim],
-                                          dtype=getattr(tf, "float%s" % conf.precision),
-                                          initializer=init)
-                b_cov_u = tf.get_variable("b_cov_u", shape=[1, dim], dtype=getattr(tf, "float%s" % conf.precision),
-                                          initializer=tf.initializers.zeros())
+                cov_u = tf.expand_dims(tf.matmul(layer_u, self._W_cov_u) + self._b_cov_u, 1)
 
-                cov_u = tf.expand_dims(tf.matmul(layer_u, W_cov_u) + b_cov_u, 1)
-
-                W_cov_d = tf.get_variable("W_cov_d",
-                                          shape=[last_hidden_units_size - int(last_hidden_units_size / 2), dim],
-                                          dtype=getattr(tf, "float%s" % conf.precision), initializer=init)
-                b_cov_d = tf.get_variable("b_cov_d", shape=[1, dim], dtype=getattr(tf, "float%s" % conf.precision),
-                                          initializer=tf.initializers.zeros())
-
-                cov_d = tf.add(1e-27, tf.square(tf.matmul(layer_d, W_cov_d) + b_cov_d))
-            else:
-                for i in range(2):
-                    layer = tf.layers.dense(layer, units=20, activation=activation, name="cov_layer_%d" % i)
-
-                W_cov_u = tf.get_variable("W_cov_u", shape=[20, dim], dtype=getattr(tf, "float%s" % conf.precision))
-                b_cov_u = tf.get_variable("b_cov_u", shape=[1, dim], dtype=getattr(tf, "float%s" % conf.precision))
-
-                cov_u = tf.expand_dims(tf.matmul(layer, W_cov_u) + b_cov_u, 1)
-
-                W_cov_d = tf.get_variable("W_cov_d", shape=[20, dim], dtype=getattr(tf, "float%s" % conf.precision))
-                b_cov_d = tf.get_variable("b_cov_d", shape=[1, dim], dtype=getattr(tf, "float%s" % conf.precision))
-
-                cov_d = tf.add(1e-27, tf.square(tf.matmul(layer, W_cov_d) + b_cov_d))
+                cov_d = tf.add(1e-27, tf.square(tf.matmul(layer_d, self._W_cov_d) + self._b_cov_d))
         else:
-            cov_u = tf.get_variable("cov_u", shape=(1, dim))
-            cov_d = tf.add(1e-27, tf.square(tf.get_variable("cov_d_raw", shape=(1, dim)), name="cov_d"))
+            cov_u = self._cov_u
+            cov_d = tf.add(1e-27, tf.square(self._cov_d_raw, name="cov_d"))
 
         diagonal = tf.matrix_diag(cov_d)
 
@@ -280,30 +299,39 @@ class MONDE(tf.keras.models.Model):
         return corr
 
     def correlation_directly(self, x):
-        activation = get_activation(params)
-        r = params["cor_rank"] if 'cor_rank' in params else dim
-        num_theta = int((r - 1) * (dim - r / 2))
+        r =  self.cor_rank if hasattr(self, "cor_rank") else self._y_size
         if x is not None:
             layer = x
 
-            if "arch_cov" in params:
-                for i, units in enumerate(params["arch_cov"]):
-                    layer = tf.layers.dense(layer, units=units, activation=activation, name="cov_layer_%d" % i)
-
-                layer = tf.layers.dense(layer, units=num_theta, name="cov")
-
+            if self._arch_cov_transform:
+                layer = self._cov_transform(layer)
+                layer = self._theta_transform(layer)
             else:
                 raise ValueError("arch_cov missing")
         else:
-            layer = tf.get_variable("cov_u", shape=(1, num_theta))
+            layer = self._cov_u
 
         theta = np.pi / 2 - tf.tanh(layer)
-        B = [b_mat_el(theta, i, j, r) for i in range(dim) for j in range(r)]
+        B = [self.b_mat_el(theta, i, j, r) for i in range(self._y_size) for j in range(r)]
         B = tf.concat(B, axis=1)
-        B = tf.reshape(B, (-1, dim, r))
+        B = tf.reshape(B, (-1, self._y_size, r))
         cor = tf.matmul(B, B, transpose_b=True)
         cor = tf.matrix_set_diag(cor, tf.fill(tf.slice(tf.shape(cor), [0], [2]), 1.0), name="correlation")
         return cor
+
+    def b_mat_el(self, theta_mat, i, j, r):
+        start_idx = np.sum(np.minimum(np.arange(i), r - 1))
+        if i == 0 and j == 0:
+            return tf.fill([tf.shape(theta_mat)[0], 1], 1.)
+        elif j == 0:
+            return tf.cos(theta_mat[:, start_idx, None])
+        elif j == min(i, r - 1):
+            return tf.reduce_prod(tf.sin(theta_mat[:, start_idx:start_idx + j, None]), axis=1)
+        elif 1 <= j <= min(i - 1, r - 2) and i >= 1:
+            return tf.cos(theta_mat[:, start_idx + j, None]) * tf.reduce_prod(
+                tf.sin(theta_mat[:, start_idx:start_idx + j, None]), axis=1)
+        else:
+            return tf.fill([tf.shape(theta_mat)[0], 1], 0.)
 
     def tf_cov(self, x):
         mean_x = tf.reduce_mean(x, axis=0, keepdims=True, name="mean")
@@ -377,7 +405,10 @@ class MONDE(tf.keras.models.Model):
             opened_file.write(json.dumps(json_obj))
 
     def get_config(self):
-        return {'arch': self._arch, 'num_mixtures': self._num_mixtures, 'input_event_shape': self._input_event_shape,
+        return {'cov_type': self._cov_type, 'arch_hxy': self._arch_hxy,
+                'arch_x_transform': self._arch_x_transform, 'arch_cov_transform': self._arch_cov_transform,
+                'hxy_x_size': self._hxy_x_size, 'covariance_learning_rate': self._covariance_learning_rate,
+                'input_event_shape': self._input_event_shape,
                 'covariate_shape':self._covariate_shape}
 
     @property
