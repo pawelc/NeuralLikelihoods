@@ -4,17 +4,16 @@ from conf import conf
 import  models.tensorflow.mykeras.layers as mylayers
 import tensorflow as tf
 
+from models.tensorflow.common import TfModel
+
 tfk = tf.keras
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 import numpy as np
 
-
-class MONDE(tf.keras.models.Model):
-
-    def __init__(self, cov_type, arch_hxy, arch_x_transform = None ,
-                 arch_cov_transform =None, hxy_x_size = 0, covariance_learning_rate = None,
-                 input_event_shape=None, covariate_shape=None, **kwargs):
+class MONDELayer(tfk.layers.Layer):
+    def __init__(self, cov_type, arch_hxy, arch_x_transform=None,
+                 arch_cov_transform=None, hxy_x_size=0, covariance_learning_rate=None, **kwargs):
         super().__init__(**kwargs)
 
         if cov_type not in ['const_cov', 'param_cov', 'param_cor', None]:
@@ -34,20 +33,13 @@ class MONDE(tf.keras.models.Model):
         self._hxy_x_size = hxy_x_size
         self._covariance_learning_rate = covariance_learning_rate
 
-        self._input_event_shape = input_event_shape
-        if self._input_event_shape is not None:
-            self._y_size = self._input_event_shape[-1]
-        self._covariate_shape = covariate_shape
-
     def build(self, input_shape):
-        self._input_event_shape = input_shape[0]
-        self._covariate_shape = input_shape[1]
         self._y_size = input_shape[0][-1]
         self._x_size = input_shape[1][-1]
 
         if self._arch_x_transform:
             self._x_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation='sigmoid')
-                                                   for units in self._arch_x_transform], name="x_transform")
+                                                       for units in self._arch_x_transform], name="x_transform")
 
         mon_size_ins = [1] + [units - self._hxy_x_size for units in self._arch_hxy]
         non_mon_size_ins = [self._arch_x_transform[-1]] + [self._hxy_x_size for _ in self._arch_hxy]
@@ -60,13 +52,14 @@ class MONDE(tf.keras.models.Model):
                                                                                   mon_size_out, non_mon_size_out),
                                    name="h_xy_%d_%d" % (i, layer))
                     for layer, units, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out in
-                    zip(range(len(self._arch_hxy)+1), self._arch_hxy, mon_size_ins, non_mon_size_ins, mon_size_outs,
+                    zip(range(len(self._arch_hxy) + 1), self._arch_hxy, mon_size_ins, non_mon_size_ins, mon_size_outs,
                         non_mon_size_outs)]
             , name="h_xy_%d" % i) for i in range(self._y_size)]
 
         if self._arch_cov_transform:
             self._cov_transform = tfk.Sequential(layers=[tfk.Dense(units, activation="tanh", name="cov_layer_%d" % i,
-                                                                   kernel_initializer=tf.initializers.random_normal(mean=0, stddev=0.01))
+                                                                   kernel_initializer=tf.initializers.random_normal(
+                                                                       mean=0, stddev=0.01))
                                                          for i, units in enumerate(self._arch_cov_transform)])
         else:
             self._cov_var = tf.Variable(tfk.initializers.constant(np.nan)((self._y_size, self._y_size)),
@@ -86,8 +79,9 @@ class MONDE(tf.keras.models.Model):
                     self._b_cov_u = tf.Variable(tf.initializers.zeros()(shape=[1, self._y_size]),
                                                 dtype=getattr(tf, "float%s" % conf.precision), name="b_cov_u")
 
-                    self._W_cov_d = tf.Variable(init(shape=[last_hidden_units_size - int(last_hidden_units_size / 2), self._y_size]),
-                                                dtype=getattr(tf, "float%s" % conf.precision), name="W_cov_d")
+                    self._W_cov_d = tf.Variable(
+                        init(shape=[last_hidden_units_size - int(last_hidden_units_size / 2), self._y_size]),
+                        dtype=getattr(tf, "float%s" % conf.precision), name="W_cov_d")
 
                     self._b_cov_d = tf.Variable(tf.initializers.zeros()(shape=[1, self._y_size]),
                                                 dtype=getattr(tf, "float%s" % conf.precision), name="b_cov_d")
@@ -96,9 +90,9 @@ class MONDE(tf.keras.models.Model):
                     raise ValueError("missing arch_cov_transform")
             else:
                 self._cov_u = tf.Variable(tf.initializers.zeros()(shape=(1, self._y_size)),
-                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
+                                          dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
                 self._cov_d_raw = tf.Variable(tf.initializers.zeros()(shape=(1, self._y_size)),
-                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_d_raw")
+                                              dtype=getattr(tf, "float%s" % conf.precision), name="cov_d_raw")
 
         if self._cov_type == "param_cor":
             r = self.cor_rank if hasattr(self, "cor_rank") else self._y_size
@@ -106,11 +100,8 @@ class MONDE(tf.keras.models.Model):
             if self._x_size > 0:
                 self._theta_transform = tfk.Dense(num_theta, name="cov")
             else:
-                self._cov_u=tf.Variable(tf.initializers.zeros()(shape=(1, num_theta)),
-                                                dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
-
-
-        super(MONDE, self).build(list(input_shape))
+                self._cov_u = tf.Variable(tf.initializers.zeros()(shape=(1, num_theta)),
+                                          dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
 
     @tf.function
     def call(self, inputs):
@@ -253,7 +244,8 @@ class MONDE(tf.keras.models.Model):
                 cor_subset = tf.gather(cor_subset, marginal, axis=1)
                 lls_subset = [lls[i] for i in marginal]
 
-                log_likelihood.append(self.compute_log_likelihood_for_cor(quantiles_combined_subset, cor_subset, lls_subset))
+                log_likelihood.append(
+                    self.compute_log_likelihood_for_cor(quantiles_combined_subset, cor_subset, lls_subset))
 
         else:
             log_likelihood = self.compute_log_likelihood_for_cor(quantiles_combined, cor, lls)
@@ -299,7 +291,7 @@ class MONDE(tf.keras.models.Model):
         return corr
 
     def correlation_directly(self, x):
-        r =  self.cor_rank if hasattr(self, "cor_rank") else self._y_size
+        r = self.cor_rank if hasattr(self, "cor_rank") else self._y_size
         if x is not None:
             layer = x
 
@@ -395,26 +387,38 @@ class MONDE(tf.keras.models.Model):
 
         return tf.add(c_pdf_log_prob, ll_marginals_sum)
 
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], self._input_event_size)
-
-    def save_to_json(self, file):
-        with open(file, "w") as opened_file:
-            json_obj = json.loads(self.to_json())
-            json_obj["class_name"] = ".".join([self.__module__, self.__class__.__name__])
-            opened_file.write(json.dumps(json_obj))
-
     def get_config(self):
         return {'cov_type': self._cov_type, 'arch_hxy': self._arch_hxy,
                 'arch_x_transform': self._arch_x_transform, 'arch_cov_transform': self._arch_cov_transform,
-                'hxy_x_size': self._hxy_x_size, 'covariance_learning_rate': self._covariance_learning_rate,
-                'input_event_shape': self._input_event_shape,
-                'covariate_shape':self._covariate_shape}
+                'hxy_x_size': self._hxy_x_size, 'covariance_learning_rate': self._covariance_learning_rate}
 
-    @property
-    def input_event_shape(self):
-        return self._input_event_shape
 
-    @property
-    def covariate_shape(self):
-        return self._covariate_shape
+class MONDE(TfModel):
+
+    def __init__(self, cov_type, arch_hxy, arch_x_transform = None ,
+                 arch_cov_transform =None, hxy_x_size = 0, covariance_learning_rate = None, **kwargs):
+        super().__init__(**kwargs)
+        self.monde_layer = MONDELayer(cov_type=cov_type, arch_hxy=arch_hxy, arch_x_transform = arch_x_transform ,
+                 arch_cov_transform =arch_cov_transform, hxy_x_size = hxy_x_size, covariance_learning_rate=covariance_learning_rate)
+
+    def build(self, input_shape):
+        self.monde_layer.build(input_shape)
+        super(MONDE, self).build(input_shape)
+
+    @tf.function
+    def call(self, inputs):
+        return self.monde_layer.call(inputs)
+
+    @tf.function
+    def prob(self, y, x, marginal=None, training=False):
+        return self.monde_layer.prob(y=y, x=x, marginal=marginal, training=training)
+
+    @tf.function
+    def log_prob(self, y, x, marginal=None, marginals=None, training=False):
+        return self.monde_layer.log_prob(y=y, x=x, marginal=marginal, marginals=marginals, training=training)
+
+    def get_config(self):
+        return self.monde_layer.get_config()
+
+
+

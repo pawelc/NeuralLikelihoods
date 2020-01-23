@@ -11,9 +11,8 @@ import numpy as np
 
 class RnadeDeep(TfModel):
 
-    def __init__(self, component_distribution, k_mix, arch,
-                 input_event_shape=None, covariate_shape=None, **kwargs):
-        super().__init__(input_event_shape, covariate_shape, **kwargs)
+    def __init__(self, component_distribution, k_mix, arch,**kwargs):
+        super().__init__(**kwargs)
 
         self._component_distribution = component_distribution
         self._k_mix = k_mix
@@ -32,7 +31,7 @@ class RnadeDeep(TfModel):
 
         self._nn.add(tfk.layers.Dense(self._y_size * self._n_params_for_component))
 
-        super(RnadeDeep, self).build(list(input_shape))
+        super(RnadeDeep, self).build(input_shape)
 
     @tf.function
     def call(self, inputs):
@@ -122,6 +121,4 @@ class RnadeDeep(TfModel):
         return {'k_mix': self._k_mix,
                 'arch': self._arch,
                 'component_distribution': self._component_distribution,
-                'n_params_for_component': self._n_params_for_component,
-                'input_event_shape': self._input_event_shape,
-                'covariate_shape': self._covariate_shape}
+                'n_params_for_component': self._n_params_for_component}

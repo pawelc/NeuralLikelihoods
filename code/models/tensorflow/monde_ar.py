@@ -1,9 +1,8 @@
 import json
-from functools import reduce
-
 import tensorflow as tf
 
 from conf import conf
+from models.tensorflow.common import TfModel
 
 tfk = tf.keras
 import tensorflow_probability as tfp
@@ -11,85 +10,65 @@ tfd = tfp.distributions
 
 import numpy as np
 
+class MondeARLayer(tfk.layers.Layer):
 
-class MondeAR(tf.keras.models.Model):
-
-    def __init__(self, number_of_layers, number_of_blocks,
-                 shuffle_order = False, number_of_evaluations=1,
-                 order=None, use_companion_biases = False,
-                 non_linear_transform = 'tanh',
-                 input_event_shape=None, covariate_shape=None,**kwargs):
+    def __init__(self, arch, transform="tanh", order = None, x_transform_size=0,
+                 mk_arch = None, **kwargs):
         super().__init__(**kwargs)
 
-        self._number_of_layers = number_of_layers
-        self._number_of_blocks = number_of_blocks
-        self._shuffle_order = shuffle_order
-        self._number_of_evaluations = number_of_evaluations
         self._order = order
-        self._use_companion_biases = use_companion_biases
-        self._non_linear_transform = non_linear_transform
-
-        self._input_event_shape = input_event_shape
-        if self._input_event_shape is not None:
-            self._y_size = self._input_event_shape[-1]
-        self._covariate_shape = covariate_shape
+        self._arch = arch
+        self._transform = transform
+        self._x_transform_size = x_transform_size
+        if mk_arch:
+            self._mk_arch = [np.asarray(arr) for arr in mk_arch]
+        else:
+            self._mk_arch = []
 
     def build(self, input_shape):
-        self._input_event_shape = input_shape[0]
-        self._covariate_shape = input_shape[1]
         self._y_size = input_shape[0][-1]
         self._x_size = input_shape[1][-1]
 
+        self._order = self._order if self._order else np.arange(self._y_size)
+
         self._transforms = []
         self._biases = []
-        self._companion_matrices = []
+        dim_in = self._y_size + self._x_size
+        num_layers = len(self._arch) + 1
 
-        for layer_i in range(self._number_of_layers):
-            if layer_i == 0:
-                blocks_in = 1
-            else:
-                blocks_in = self._number_of_blocks
+        for layer_i, dim_out in enumerate(self._arch + [self._y_size]):
 
-            if layer_i == self._number_of_layers - 1:
-                blocks_out = 1
-            else:
-                blocks_out = self._number_of_blocks
+            self._transforms.append(self.add_weight(initializer=tfk.initializers.glorot_uniform(),shape=(dim_in, dim_out),
+                                            dtype=getattr(tf, "float%s" % conf.precision), name="transform_%d"%layer_i))
+            self._biases.append(self.add_weight(initializer=tfk.initializers.zeros(), shape=(dim_out,),
+                                            dtype=getattr(tf,"float%s" % conf.precision), name="bias_%d"%layer_i))
 
-            self._transforms.append(tf.Variable(tfk.initializers.RandomNormal(mean=0, stddev=0.01)(shape=(blocks_in * self._y_size, blocks_out * self._y_size)),
-                                    dtype=getattr(tf, "float%s" % conf.precision)))
+            if len(self._mk_arch) <= layer_i:
+                if layer_i == num_layers - 1:
+                    mk_out = self._order
+                else:
+                    mk_out = np.random.choice(self._y_size, size=dim_out, replace=True)
+                    mk_out[:self._x_transform_size] = -1
+                self._mk_arch.append(mk_out)
 
-            self._biases.append(tf.Variable(tfk.initializers.zeros()(shape=(self._y_size * blocks_out,)),
-                                            dtype=getattr(tf,"float%s" % conf.precision)))
+            dim_in = dim_out
 
-            if self._use_companion_biases:
-                self._companion_matrices.append(
-                    tf.Variable(tfk.initializers.glorot_uniform()(shape=(blocks_in * self._y_size, blocks_out * self._y_size)),
-                                               dtype=getattr(tf, "float%s" % conf.precision)))
-
-            if self._x_size > 0 and layer_i == 0:
-                self._transform_x_slice = tf.Variable(tfk.initializers.glorot_uniform()(shape=[self._x_size, blocks_out * self._y_size]),
-                                               dtype=getattr(tf, "float%s" % conf.precision))
-
-
-
-
-        super(MondeAR, self).build(list(input_shape))
+        super(MondeARLayer, self).build(input_shape)
 
     @tf.function
     def call(self, inputs):
         return self.log_prob(inputs[0], inputs[1])
 
     @tf.function
-    def prob(self, y, x, marginal=None, training=False, number_of_evaluations=None):
+    def prob(self, y, x, marginal=None, training=False, number_of_evaluations=1):
         return tf.math.exp(self.log_prob(y, x, marginal, training))
 
     @tf.function
-    def log_prob(self, y, x, marginal=None, marginals=None, training=False, number_of_evaluations=None):
+    def log_prob(self, y, x, marginal=None, marginals=None, training=False, number_of_evaluations=1):
         if y is None:
             raise NotImplementedError
 
-
-        number_of_evaluations = 1 if training else number_of_evaluations if number_of_evaluations else self._number_of_evaluations
+        number_of_evaluations = 1 if training else number_of_evaluations
 
         ll_per_eval = []
         for eval_i in range(number_of_evaluations):
@@ -119,103 +98,96 @@ class MondeAR(tf.keras.models.Model):
 
         return log_likelihood
 
-    def create_monotone_ar_transform(self, x, y):
-        transformed = y
-
-        if self._order is not None:
-            order = np.array(self._order)
+    def transform(self, last_layer):
+        if last_layer:
+            if self._transform == 'tanh':
+                # looks like 3% slower than using sigmoid directly but more numerically stable
+                non_linear_transform = lambda z, name: tf.multiply(1 + tf.nn.tanh(z), 0.5, name=name)
+            elif self._transform == 'sigm':
+                non_linear_transform = tf.nn.sigmoid
+            elif self._transform == 'ss':
+                non_linear_transform = lambda z, name: tf.multiply(1.0 + 1.0 / (1.0 + tf.abs(z)), 0.5, name=name)
+            else:
+                raise ValueError(self._transform)
         else:
-            order = np.arange(self._y_size)
-
-        for layer_i in range(self._number_of_layers):
-
-            last_layer = False
-            if layer_i == self._number_of_layers - 1:
-                blocks_out = 1
-
-                last_layer = True
-                if self._non_linear_transform == 'tanh':
-                    # looks like 3% slower than using sigmoid directly but more numerically stable
-                    non_linear_transform = lambda z, name: tf.multiply(1 + tf.nn.tanh(z), 0.5, name=name)
-                elif self._non_linear_transform == 'sigm':
-                    non_linear_transform = tf.nn.sigmoid
-                elif self._non_linear_transform == 'ss':
-                    non_linear_transform = lambda z, name: tf.multiply(1.0 + 1.0 / (1.0 + tf.abs(z)), 0.5, name=name)
-                else:
-                    raise ValueError(self._non_linear_transform)
+            if self._transform == 'tanh':
+                # non_linear_transform = tf.nn.tanh
+                non_linear_transform = lambda z, name: tf.multiply(1 + tf.nn.tanh(z), 0.5, name=name)
+            elif self._transform == 'sigm':
+                non_linear_transform = tf.nn.sigmoid
+            elif self._transform == 'ss':
+                non_linear_transform = lambda z, name: tf.divide(1.0, 1.0 + tf.abs(z), name=name)
             else:
-                blocks_out = self._number_of_blocks
-                if self._non_linear_transform == 'tanh':
-                    # non_linear_transform = tf.nn.tanh
-                    non_linear_transform = lambda z, name: tf.multiply(1 + tf.nn.tanh(z), 0.5, name=name)
-                elif self._non_linear_transform == 'sigm':
-                    non_linear_transform = tf.nn.sigmoid
-                elif self._non_linear_transform == 'ss':
-                    non_linear_transform = lambda z, name: tf.divide(1.0, 1.0 + tf.abs(z), name=name)
-                else:
-                    raise ValueError(self._non_linear_transform)
+                raise ValueError(self._transform)
+        return non_linear_transform
 
-            if layer_i == 0:
-                blocks_in = 1
-            else:
-                blocks_in = self._number_of_blocks
+    def create_monotone_ar_transform(self, x, y):
 
-            diag_indices_list = []
+        if self._x_size > 0:
+            transformed_data = tf.concat([x,y], axis=-1)
+        else:
+            transformed_data = y
 
-            ar_mask = np.zeros((self._y_size, self._y_size), np.float32)
-            for order_idx, input_idx in enumerate(order):
-                ar_mask[order[:order_idx], input_idx] = 1
+        num_layers = len(self._arch)+1
+        dim_in = self._y_size + self._x_size
+        mk_in = np.concatenate([[-1]*self._x_size, self._order])
+        for layer_i, dim_out in enumerate(self._arch + [self._y_size]):
+            last_layer = layer_i == num_layers - 1
 
-            ar_mask = np.concatenate([ar_mask] * blocks_out, axis=1)
-            ar_mask = np.concatenate([ar_mask] * blocks_in, axis=0)
+            mk_out = self._mk_arch[layer_i]
+            ar_mask = (mk_out > mk_in[:, np.newaxis]).astype(dtype=np.float32)
+            ar_mask[(mk_in[:, np.newaxis] == -1)@(np.expand_dims(mk_out,0) == -1)] = True
 
-            for block_in_i in range(blocks_in):
-                for block_out_i in range(blocks_out):
-                    diag_indices = list(np.diag_indices(self._y_size))
-                    diag_indices[0] = diag_indices[0] + block_in_i * self._y_size
-                    diag_indices[1] = diag_indices[1] + block_out_i * self._y_size
-                    diag_indices_list.append(diag_indices)
+            diag_indices_list = np.where((mk_in[:, np.newaxis] == np.expand_dims(mk_out,0))
+                                         & ( (mk_in[:, np.newaxis] != -1) @ (np.expand_dims(mk_out,0) != -1)))
 
-            diag_indices_list_merged = [reduce(lambda a, b: np.concatenate((a, b)), el) for el in
-                                        list(zip(*diag_indices_list))]
+            diag_mask = np.zeros((dim_in, dim_out), dtype=np.float32)
+            diag_mask[diag_indices_list] = 1
 
-            diags = tf.gather_nd(self._transforms[layer_i], list(zip(*diag_indices_list_merged)))
+            ar_transform_constrained = self._transforms[layer_i] * ar_mask
 
-            mask = tf.scatter_nd(list(zip(*diag_indices_list_merged)), diags,
-                                 (blocks_in * self._y_size, blocks_out * self._y_size)) + ar_mask
+            mon_transform = self._transforms[layer_i] * diag_mask * self._transforms[layer_i]
+            transform = ar_transform_constrained + mon_transform
 
-            transform = tf.multiply(self._transforms[layer_i], mask)
+            transformed_data = tf.add(tf.matmul(transformed_data, transform), self._biases[layer_i],
+                           name="transformed")
 
-            if self._use_companion_biases:
-                self._biases[layer_i] += tf.reduce_sum(tf.multiply(self._companion_matrices[layer_i], mask), axis=0)
+            non_linear_transform = self.transform(last_layer)
+            transformed_data = non_linear_transform(transformed_data, name="output_transformed")
 
-            if self._x_size > 0 and layer_i == 0:
-                transform = tf.concat([self._transform_x_slice, transform], axis=0)
-                transformed = tf.add(tf.matmul(tf.concat([x, transformed], axis=-1), transform), self._biases[layer_i], name="transformed")
-            else:
-                transformed = tf.add(tf.matmul(transformed, transform), self._biases[layer_i], name="transformed")
+            dim_in = dim_out
 
-            transformed = non_linear_transform(transformed, name="output_transformed")
+            mk_in = mk_out
 
-        return transformed
-
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], self._input_event_size)
-
-    def save_to_json(self, file):
-        with open(file, "w") as opened_file:
-            json_obj = json.loads(self.to_json())
-            json_obj["class_name"] = ".".join([self.__module__, self.__class__.__name__])
-            opened_file.write(json.dumps(json_obj))
+        return transformed_data
 
     def get_config(self):
-        return {'arch': self._arch, 'num_mixtures': self._num_mixtures, 'input_event_shape': self._input_event_shape,
-                'covariate_shape':self._covariate_shape}
+        return {'order': self._order, 'arch': self._arch, 'transform': self._transform,
+                'x_transform_size': self._x_transform_size, 'mk_arch' : self._mk_arch}
 
-    @property
-    def input_event_shape(self):
-        return self._input_event_shape
+class MondeAR(TfModel):
 
-    @property
-    def covariate_shape(self):
-        return self._covariate_shape
+    def __init__(self, arch, transform="tanh", order = None, x_transform_size=0,
+                 mk_arch = [], **kwargs):
+        super().__init__(**kwargs)
+        self.monde_layer = MondeARLayer(arch=arch, transform=transform, order = order, x_transform_size=x_transform_size,
+                 mk_arch = mk_arch)
+
+    def build(self, input_shape):
+        self.monde_layer.build(input_shape)
+        super(MondeAR, self).build(input_shape)
+
+    @tf.function
+    def call(self, inputs):
+        return self.monde_layer.call(inputs)
+
+    @tf.function
+    def prob(self, y, x, marginal=None, training=False):
+        return self.monde_layer.prob(y=y, x=x, marginal=marginal, training=training)
+
+    @tf.function
+    def log_prob(self, y, x, marginal=None, marginals=None, training=False):
+        return self.monde_layer.log_prob(y=y, x=x, marginal=marginal, marginals=marginals, training=training)
+
+    def get_config(self):
+        return self.monde_layer.get_config()

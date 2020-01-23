@@ -75,7 +75,7 @@ def load_model_from_json(model_file):
 
 def load_model_and_params(model_file):
     model = load_model_from_json(model_file)
-    model.build([model.input_event_shape, model.covariate_shape])
+    model.build(model.model_input_shape)
     model.load_weights(model_file + ".h5")
     training_op = getattr(model, "training", None)
     if callable(training_op):

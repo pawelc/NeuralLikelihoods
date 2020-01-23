@@ -1,7 +1,7 @@
-import json
-
 import tensorflow as tf
 import tensorflow_probability as tfp
+
+from models.tensorflow.common import TfModel
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -10,25 +10,14 @@ import models.tensorflow.masked_autoregressive as mar
 import numpy as np
 
 
-class MAF(tf.keras.models.Model):
+class MAF(TfModel):
 
-    def __init__(self, num_bijectors, hidden_units, covariate_hidden_units, batch_norm, training=True,input_event_shape=None,
-                 covariate_shape=None, **kwargs):
+    def __init__(self, num_bijectors, hidden_units,
+                 covariate_hidden_units, batch_norm, training=True, **kwargs):
         super().__init__(**kwargs)
 
         self._num_bijectors = num_bijectors
         self._hidden_units = hidden_units
-        self._input_event_shape = input_event_shape
-        if input_event_shape is not None:
-            self._input_event_size = input_event_shape[-1]
-        else:
-            self._input_event_size = None
-
-        self._covariate_shape = covariate_shape
-        if covariate_shape is not None:
-            self._covariate_size = covariate_shape[-1]
-        else:
-            self._covariate_size = None
 
         self._covariate_hidden_units = covariate_hidden_units
         self._batch_norm = batch_norm
@@ -38,39 +27,17 @@ class MAF(tf.keras.models.Model):
         self._batch_norm_bijectors = []
         self._training = training
 
-    @property
-    def input_event_shape(self):
-        return self._input_event_shape
-
-    @property
-    def covariate_shape(self):
-        return self._covariate_shape
-
     def build(self, input_shape):
-        x_size = input_shape[0][-1]
-        z_size = input_shape[1][-1]
-
-        if self._input_event_size:
-            if x_size != self._input_event_size:
-                raise ValueError()
-        else:
-            self._input_event_shape = [None, x_size]
-            self._input_event_size = x_size
-
-        if self._covariate_size:
-            if z_size != self._covariate_size:
-                raise ValueError()
-        else:
-            self._covariate_shape = [None, z_size]
-            self._covariate_size = z_size
+        y_size = input_shape[0][-1]
+        x_size = input_shape[1][-1]
 
         bijectors = []
         trainable_variables = []
         for i in range(self._num_bijectors):
             made = mar.AutoregressiveNetwork(params=2, hidden_units=self._hidden_units, activation=tfk.activations.relu,
-                                                covariate_shape=self._covariate_shape, covariate_hidden_units=self._covariate_hidden_units)
+                                                covariate_shape=input_shape[1], covariate_hidden_units=self._covariate_hidden_units)
             self._mades.append(made)#to register parameters with keras
-            made.build([self._input_event_size])
+            made.build(input_shape[0])
             trainable_variables.extend(made.trainable_variables)
 
             def made_transform(x, z=None, made=made):
@@ -87,11 +54,11 @@ class MAF(tf.keras.models.Model):
                     self._batch_norm_bijectors.append(batch_norm)
                     bijectors.append(batch_norm)
 
-                bijectors.append(tfb.Permute(permutation=list(reversed(range(self._input_event_size)))))
+                bijectors.append(tfb.Permute(permutation=list(reversed(range(y_size)))))
 
         bijector = tfb.Chain(list(reversed(bijectors)))
 
-        base_dist = tfd.MultivariateNormalDiag(loc=tf.zeros([x_size], tf.float32))
+        base_dist = tfd.MultivariateNormalDiag(loc=tf.zeros([y_size], tf.float32))
         # base_dist = tfd.Normal(loc=0., scale=1.)
 
         self._distribution = tfd.TransformedDistribution(distribution=base_dist, bijector=bijector)
@@ -115,15 +82,6 @@ class MAF(tf.keras.models.Model):
         self.training(prev_training_state)
         return res
 
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], self._input_event_size)
-
-    def save_to_json(self, file):
-        with open(file, "w") as opened_file:
-            json_obj = json.loads(self.to_json())
-            json_obj["class_name"] = ".".join([self.__module__, self.__class__.__name__])
-            opened_file.write(json.dumps(json_obj))
-
     def sample(self, size, z):
         if len(z.shape) == 1:
             z = np.full((size, z.shape[0]), z, dtype=np.float32)
@@ -142,8 +100,7 @@ class MAF(tf.keras.models.Model):
         return self._distribution.bijector.inverse(x, masked_autoregressive_flow=bijector_kwargs['masked_autoregressive_flow'])
 
     def get_config(self):
-        return {'num_bijectors': self._num_bijectors, 'input_event_shape': self._input_event_shape,
-                'covariate_shape':self._covariate_shape, 'hidden_units': self._hidden_units,
+        return {'num_bijectors': self._num_bijectors, 'hidden_units': self._hidden_units,
                 'batch_norm': self._batch_norm, 'covariate_hidden_units': self._covariate_hidden_units}
 
     def training(self, training):

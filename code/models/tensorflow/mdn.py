@@ -1,14 +1,16 @@
-import json
 from functools import reduce
 
 import tensorflow as tf
 import tensorflow_probability as tfp
+
+from models.tensorflow.common import TfModel
+
 tfd = tfp.distributions
 
 
-class MDN(tf.keras.models.Model):
+class MDN(TfModel):
 
-    def __init__(self, arch, num_mixtures, input_event_shape=None, covariate_shape=None, **kwargs):
+    def __init__(self, arch, num_mixtures, **kwargs):
         super().__init__(**kwargs)
 
         self._arch = arch
@@ -18,14 +20,8 @@ class MDN(tf.keras.models.Model):
         self._var_layer = None
         self._var = None
         self._pi = None
-        self._input_event_shape = input_event_shape
-        if self._input_event_shape is not None:
-            self._y_size = self._input_event_shape[-1]
-        self._covariate_shape = covariate_shape
 
     def build(self, input_shape):
-        self._input_event_shape = input_shape[0]
-        self._covariate_shape = input_shape[1]
         self._y_size = input_shape[0][-1]
 
         for i, units in enumerate(self._arch):
@@ -93,23 +89,5 @@ class MDN(tf.keras.models.Model):
     def sample(self, size, x, marginal=None):
         return self.mixture(x, marginal).sample(size)
 
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], self._input_event_size)
-
-    def save_to_json(self, file):
-        with open(file, "w") as opened_file:
-            json_obj = json.loads(self.to_json())
-            json_obj["class_name"] = ".".join([self.__module__, self.__class__.__name__])
-            opened_file.write(json.dumps(json_obj))
-
     def get_config(self):
-        return {'arch': self._arch, 'num_mixtures': self._num_mixtures, 'input_event_shape': self._input_event_shape,
-                'covariate_shape':self._covariate_shape}
-
-    @property
-    def input_event_shape(self):
-        return self._input_event_shape
-
-    @property
-    def covariate_shape(self):
-        return self._covariate_shape
+        return {'arch': self._arch, 'num_mixtures': self._num_mixtures}

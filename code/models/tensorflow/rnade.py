@@ -1,5 +1,3 @@
-import json
-
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -9,17 +7,13 @@ from models.tensorflow.common import TfModel
 tfd = tfp.distributions
 tfk = tf.keras
 K=tfk.backend
-import numpy as np
 
-class Rnade(TfModel):
-
-    def __init__(self, k_mix, hidden_units, component_distribution,
-                 input_event_shape=None, covariate_shape=None, **kwargs):
-        super().__init__(input_event_shape, covariate_shape, **kwargs)
-
+class RnadeLayer(tfk.layers.Layer):
+    def __init__(self, k_mix, hidden_units, component_distribution):
         self._k_mix = k_mix
         self._hidden_units = hidden_units
         self._component_distribution = component_distribution
+        super().__init__()
 
     def build(self, input_shape):
         self._input_event_shape = input_shape[0]
@@ -27,61 +21,67 @@ class Rnade(TfModel):
         self._y_size = input_shape[0][-1]
         self._x_size = input_shape[1][-1]
 
-        self._c = tf.Variable(tf.initializers.zeros()(shape=(self._hidden_units,)) ,name="c", dtype=getattr(tf, "float%s" % conf.precision))
-        self._W = tf.Variable(tf.initializers.glorot_normal()(shape=(self._x_size + self._y_size - 1, self._hidden_units)),name="W",
-                                                               dtype=getattr(tf, "float%s" % conf.precision))
-        self._rho = tf.Variable(np.random.normal(size=(self._y_size,)),name="rho", dtype=getattr(tf, "float%s" % conf.precision))
+        self.c = self.add_weight(initializer=tf.initializers.zeros(), shape=(self._hidden_units,),
+                                 name="c",
+                                 dtype=getattr(tf, "float%s" % conf.precision))
+        self.W = self.add_weight(initializer=tf.initializers.glorot_normal(), name="W",
+                                 shape=(self._x_size + self._y_size - 1, self._hidden_units),
+                                 dtype=getattr(tf, "float%s" % conf.precision))
+        self.rho = self.add_weight(initializer=tf.initializers.RandomNormal(), shape=(self._y_size,), name="rho",
+                                   dtype=getattr(tf, "float%s" % conf.precision))
 
-        self._v_alphas = []
-        self._b_alphas = []
-        self._v_mus = []
-        self._b_mus = []
-        self._v_sigmas = []
-        self._b_sigmas = []
+        self.v_alphas = []
+        self.b_alphas = []
+        self.v_mus = []
+        self.b_mus = []
+        self.v_sigmas = []
+        self.b_sigmas = []
 
         for d in range(self._y_size):
-            self._v_alphas.append(tf.Variable(tf.initializers.glorot_normal()(shape=(self._hidden_units, self._k_mix)),
-                                              name="V_alpha_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
-            self._b_alphas.append(tf.Variable(tf.initializers.zeros()(shape=(self._k_mix,)),name="b_alpha_%d" % d,
-                                              dtype=getattr(tf, "float%s" % conf.precision)))
+            self.v_alphas.append(
+                self.add_weight(initializer=tf.initializers.glorot_normal(), shape=(self._hidden_units, self._k_mix),
+                                name="V_alpha_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
+            self.b_alphas.append(
+                self.add_weight(initializer=tf.initializers.zeros(), shape=(self._k_mix,), name="b_alpha_%d" % d,
+                                dtype=getattr(tf, "float%s" % conf.precision)))
 
-            self._v_mus.append(tf.Variable(tf.initializers.glorot_normal()(shape=(self._hidden_units, self._k_mix)),
-                                           name="V_mu_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
-            self._b_mus.append(tf.Variable(tf.initializers.zeros()(shape=(self._k_mix,)), name="b_mu_%d" % d,
-                                           dtype=getattr(tf, "float%s" % conf.precision)))
-            self._v_sigmas.append(tf.Variable(tf.initializers.glorot_normal()(shape=(self._hidden_units, self._k_mix)),
-                                              name="V_sigma_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
-            self._b_sigmas.append(tf.Variable(tf.initializers.zeros()(shape=(self._k_mix,)), name="b_sigma_%d" % d,
-                                              dtype=getattr(tf, "float%s" % conf.precision)))
+            self.v_mus.append(
+                self.add_weight(initializer=tf.initializers.glorot_normal(), shape=(self._hidden_units, self._k_mix),
+                                name="V_mu_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
+            self.b_mus.append(
+                self.add_weight(initializer=tf.initializers.zeros(), shape=(self._k_mix,), name="b_mu_%d" % d,
+                                dtype=getattr(tf, "float%s" % conf.precision)))
+            self.v_sigmas.append(
+                self.add_weight(initializer=tf.initializers.glorot_normal(), shape=(self._hidden_units, self._k_mix),
+                                name="V_sigma_%d" % d, dtype=getattr(tf, "float%s" % conf.precision)))
+            self.b_sigmas.append(
+                self.add_weight(initializer=tf.initializers.zeros(), shape=(self._k_mix,), name="b_sigma_%d" % d,
+                                dtype=getattr(tf, "float%s" % conf.precision)))
 
-        super(Rnade, self).build(list(input_shape))
+        super(RnadeLayer, self).build(input_shape)
 
-    @tf.function
-    def call(self, inputs, training=False):
-        return self.log_prob(inputs[0], inputs[1], training=training)
+    def call(self, yx, training=False):
+        y = yx[0]
+        x = yx[1]
+        return self.log_prob(y, x)
 
-    @tf.function
-    def prob(self, y, x, marginal=None, training=False):
-        return tf.exp(self.log_prob(y, x, marginal, training))
-
-    @tf.function
-    def log_prob(self, y, x, marginal=None, training=False):
+    def log_prob(self, y, x, training=False):
         points = tf.shape(y)[0]
 
         if x is not None:
-            a = self._c + x @ self._W[:x.shape[1],:]
+            a = self.c + x @ self.W[:x.shape[1], :]
         else:
-            a = tf.fill((points, 1), self._c)
+            a = tf.fill((points, 1), self.c)
 
         ll = tf.constant([0.], dtype=getattr(tf, "float%s" % conf.precision))
         lls = []
 
         for d in range(self._y_size):
-            psi = self._rho[d] * a # Rescaling factors
+            psi = self.rho[d] * a  # Rescaling factors
             h = tf.nn.relu(psi, name="h_%d" % d)  # Rectified linear unit
-            z_alpha = h @ self._v_alphas[d] + self._b_alphas[d]
-            z_mu = h @ self._v_mus[d]+self._b_mus[d]
-            z_sigma = h @ self._v_sigmas[d] + self._b_sigmas[d]
+            z_alpha = h @ self.v_alphas[d] + self.b_alphas[d]
+            z_mu = h @ self.v_mus[d] + self.b_mus[d]
+            z_sigma = h @ self.v_sigmas[d] + self.b_sigmas[d]
 
             mu = z_mu
             sigma = tf.exp(z_sigma)
@@ -115,6 +115,30 @@ class Rnade(TfModel):
     def get_config(self):
         return {'k_mix': self._k_mix,
                 'hidden_units': self._hidden_units,
-                'component_distribution': self._component_distribution,
-                'input_event_shape': self._input_event_shape,
-                'covariate_shape': self._covariate_shape}
+                'component_distribution': self._component_distribution}
+
+
+class Rnade(TfModel):
+
+    def __init__(self, k_mix, hidden_units, component_distribution, **kwargs):
+        super().__init__(**kwargs)
+        self.rnade_layer = RnadeLayer(k_mix, hidden_units, component_distribution)
+
+    def build(self, input_shape):
+        self.rnade_layer.build(input_shape)
+        super(Rnade, self).build(input_shape)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        return self.log_prob(inputs[0], inputs[1], training=training)
+
+    @tf.function
+    def prob(self, y, x, marginal=None, training=False):
+        return tf.exp(self.log_prob(y, x, marginal, training))
+
+    @tf.function
+    def log_prob(self, y, x, marginal=None, training=False):
+        return self.rnade_layer.log_prob(y, x)
+
+    def get_config(self):
+        return self.rnade_layer.get_config()
