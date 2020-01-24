@@ -142,3 +142,7 @@ class Rnade(TfModel):
 
     def get_config(self):
         return self.rnade_layer.get_config()
+
+    @property
+    def model_name(self):
+        return "rnade_" + self.rnade_layer._component_distribution

@@ -120,5 +120,8 @@ class RnadeDeep(TfModel):
     def get_config(self):
         return {'k_mix': self._k_mix,
                 'arch': self._arch,
-                'component_distribution': self._component_distribution,
-                'n_params_for_component': self._n_params_for_component}
+                'component_distribution': self._component_distribution}
+
+    @property
+    def model_name(self):
+        return "rnade_deep_" + self._component_distribution

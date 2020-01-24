@@ -155,3 +155,7 @@ class Pumonde(tfk.models.Model):
     @property
     def covariate_shape(self):
         return self._covariate_shape
+
+    @property
+    def model_name(self):
+        return "pumonde"

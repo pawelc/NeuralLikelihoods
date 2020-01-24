@@ -51,40 +51,6 @@ class UniformFactory:
     def __str__(self):
         return "Uniform"
 
-def generate_in_tensorflow_dep(op_factory, x_data):
-    tf.set_random_seed(1)
-    x = tf.placeholder(shape=x_data.shape, dtype=getattr(tf,"float%s"%conf.precision))
-    sample_op = op_factory(x).sample()
-    with tf.Session(config=create_session_config()) as sess:
-        sess.run(tf.global_variables_initializer())
-        return sess.run(sample_op, feed_dict={x: x_data})
-
-def generate_in_tensorflow(op_factory, samples):
-    tf.set_random_seed(1)
-    sample_op = op_factory().sample(samples)
-    with tf.Session(config=create_session_config()) as sess:
-        sess.run(tf.global_variables_initializer())
-        return sess.run(sample_op, feed_dict={})
-
-
-def compute_ll_dep(op_factory, data):
-    x_data = data[:,0]
-    y_data = data[:, 1]
-
-    x = tf.placeholder(shape=x_data.shape, dtype=getattr(tf,"float%s"%conf.precision))
-    y = tf.placeholder(shape=y_data.shape, dtype=getattr(tf,"float%s"%conf.precision))
-    ll_op = op_factory(x).log_prob(y)
-    with tf.Session(config=create_session_config()) as sess:
-        sess.run(tf.global_variables_initializer())
-        return sess.run(ll_op, feed_dict={x: x_data, y: y_data})
-
-def compute_ll(op_factory, x_data):
-    x = tf.placeholder(shape=x_data.shape, dtype=getattr(tf,"float%s"%conf.precision))
-    ll_op = op_factory().log_prob(x)
-    with tf.Session(config=create_session_config()) as sess:
-        sess.run(tf.global_variables_initializer())
-        return sess.run(ll_op, feed_dict={x: x_data})
-
 
 class TfGenerator(DataLoader):
 
@@ -95,14 +61,13 @@ class TfGenerator(DataLoader):
         self.samples = kwargs["samples"]
 
     def generate_data(self):
-        x_data = invoke_in_process_pool("generate data", 1,Callable(generate_in_tensorflow, self.op_factory_x,
-                                                                    self.samples))[0]
-        y = invoke_in_process_pool("generate data", 1, Callable(generate_in_tensorflow_dep, self.op_factory_y, x_data))[0]
-
+        tf.random.set_seed(1)
+        x_data = self.op_factory_x().sample(self.samples)
+        y = self.op_factory_y(x_data).sample()
         return np.c_[x_data, y]
 
     def ll(self, data):
-        return compute_ll(self.op_factory_x, data[:,0]) + compute_ll_dep(self.op_factory_y, data)
+        return self.op_factory_y(data[:,0]).log_prob(data[:,1])
 
     def can_compute_ll(self):
         return True

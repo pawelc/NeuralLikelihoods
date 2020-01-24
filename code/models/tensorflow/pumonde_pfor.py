@@ -244,3 +244,7 @@ class PumondePFor(tfk.models.Model):
         def input_to_hxy_transform(yx):
             return K.dot(yx, mask)
         return tfk.layers.Lambda(input_to_hxy_transform, output_shape=(None, block_out_size))
+
+    @property
+    def model_name(self):
+        return "pumonde_pfor"

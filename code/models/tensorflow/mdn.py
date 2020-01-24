@@ -91,3 +91,7 @@ class MDN(TfModel):
 
     def get_config(self):
         return {'arch': self._arch, 'num_mixtures': self._num_mixtures}
+
+    @property
+    def model_name(self):
+        return "mdn"

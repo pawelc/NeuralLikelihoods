@@ -110,3 +110,7 @@ class MAF(TfModel):
             bn_bijector._training = training
         return prev_training
 
+    @property
+    def model_name(self):
+        return "maf"
+

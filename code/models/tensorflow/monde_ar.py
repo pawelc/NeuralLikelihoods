@@ -191,3 +191,7 @@ class MondeAR(TfModel):
 
     def get_config(self):
         return self.monde_layer.get_config()
+
+    @property
+    def model_name(self):
+        return "monde_ar"
