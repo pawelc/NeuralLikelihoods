@@ -52,7 +52,7 @@ class MONDELayer(tfk.layers.Layer):
                                                                                   mon_size_out, non_mon_size_out),
                                    name="h_xy_%d_%d" % (i, layer))
                     for layer, units, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out in
-                    zip(range(len(self._arch_hxy) + 1), self._arch_hxy, mon_size_ins, non_mon_size_ins, mon_size_outs,
+                    zip(range(len(self._arch_hxy) + 1), self._arch_hxy + [1], mon_size_ins, non_mon_size_ins, mon_size_outs,
                         non_mon_size_outs)]
             , name="h_xy_%d" % i) for i in range(self._y_size)]
 
@@ -102,16 +102,17 @@ class MONDELayer(tfk.layers.Layer):
             else:
                 self._cov_u = tf.Variable(tf.initializers.zeros()(shape=(1, num_theta)),
                                           dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
+        super(MONDELayer, self).build(input_shape)
 
     @tf.function
     def call(self, inputs):
         return self.log_prob(inputs[0], inputs[1])
 
-    @tf.function
+    # @tf.function
     def prob(self, y, x, marginal=None, training=False):
         return tf.math.exp(self.log_prob(y, x, marginal, training))
 
-    @tf.function
+    # @tf.function
     def log_prob(self, y, x, marginal=None, marginals=None, training=False):
         if y is None:
             raise NotImplementedError
@@ -409,7 +410,7 @@ class MONDE(TfModel):
     def call(self, inputs):
         return self.monde_layer.call(inputs)
 
-    @tf.function
+    # @tf.function
     def prob(self, y, x, marginal=None, training=False):
         return self.monde_layer.prob(y=y, x=x, marginal=marginal, training=training)
 
@@ -422,7 +423,7 @@ class MONDE(TfModel):
 
     @property
     def model_name(self):
-        return "monde"
+        return "monde_" + self.monde_layer._cov_type
 
 
 
