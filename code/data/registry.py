@@ -34,28 +34,35 @@ def mixture_of_experts(**kwargs):
     data_loader.load_data()
     return data_loader
 
-def sin_normal_noise(x_slice, y_slice):
-    data_loader = data.TfGenerator(name="sin_normal_noise", x_slice=x_slice, y_slice=y_slice, samples=10000,
+def sin_normal_noise():
+    data_loader = data.TfGenerator(name="sin_normal_noise", x_slice=slice(None,1), y_slice=slice(1,None), samples=10000,
                                    op_factory_y=SinusoidFactory("normal"),
                                    op_factory_x=UniformFactory(low=-1.5, high=1.5))
     data_loader.load_data()
     return data_loader
 
+def sin_t_noise():
+    data_loader = data.TfGenerator(name="sin_t_noise", x_slice=slice(None,1), y_slice=slice(1,None), samples=10000,
+                                   op_factory_y=SinusoidFactory("standard_t"),
+                                   op_factory_x=UniformFactory(low=-1.5, high=1.5))
+    data_loader.load_data()
+    return data_loader
 
 def sin_np(x_slice, y_slice, **kwargs):
     data_loader = data.NpSinusoid(x_slice=x_slice, y_slice=y_slice, **kwargs)
     data_loader.load_data()
     return data_loader
 
-def sin_t_noise(x_slice, y_slice):
-    data_loader = data.TfGenerator(name="sin_t_noise", x_slice=x_slice, y_slice=y_slice, samples=10000,
-                                   op_factory_y=SinusoidFactory("standard_t"),
-                                   op_factory_x=UniformFactory(low=-1.5, high=1.5))
+
+def inv_sin_normal():
+    data_loader = data.TrendingSinusoid(name="inv_sin_noise", normalize=True,x_slice=slice(None,1),
+                                        y_slice=slice(1,None))
     data_loader.load_data()
     return data_loader
 
-def inv_sin():
-    data_loader = data.TrendingSinusoid(name="inv_sin", normalize=True)
+def inv_sin_t_noise():
+    data_loader = data.TrendingSinusoid(name="inv_sin_t_noise", normalize=True, noise = "standard_t", df=3,
+                                        x_slice=slice(None,1), y_slice=slice(1,None))
     data_loader.load_data()
     return data_loader
 
@@ -63,13 +70,6 @@ def mvn():
     data_loader = data.MVN(name="mvn", normalize=False, x_slice=slice(0), y_slice=slice(None),dim=100)
     data_loader.load_data()
     return data_loader
-
-
-def inv_sin_t_noise():
-    data_loader = data.TrendingSinusoid(name="inv_sin_t_noise", normalize=True, noise = "standard_t", df=3)
-    data_loader.load_data()
-    return data_loader
-
 
 def etf():
     data_loader = data.Yahoo(name="etf", normalize=True,symbols=["SPY"], start="2011-01-03",end="2015-04-14")
