@@ -5,6 +5,7 @@ import  models.tensorflow.mykeras.layers as mylayers
 import tensorflow as tf
 
 from models.tensorflow.common import TfModel
+from models.tensorflow.utils import constrain_cdf
 
 tfk = tf.keras
 import tensorflow_probability as tfp
@@ -104,13 +105,13 @@ class MONDELayer(tfk.layers.Layer):
                                           dtype=getattr(tf, "float%s" % conf.precision), name="cov_u")
         super(MONDELayer, self).build(input_shape)
 
-    @tf.function
+    # @tf.function
     def call(self, inputs):
         return self.log_prob(inputs[0], inputs[1])
 
     # @tf.function
     def prob(self, y, x, marginal=None, training=False):
-        return tf.math.exp(self.log_prob(y, x, marginal, training))
+        return tf.math.exp(self.log_prob(y, x, marginal=marginal, training=training))
 
     # @tf.function
     def log_prob(self, y, x, marginal=None, marginals=None, training=False):
@@ -122,7 +123,7 @@ class MONDELayer(tfk.layers.Layer):
 
         cdfs, pdfs = self.marginal_density_estimator(x, y)
 
-        predictions = self.marginals_and_joint(cdfs, pdfs, x, training)
+        predictions = self.marginals_and_joint(cdfs, pdfs, x, training=training)
 
         return predictions["log_likelihood"]
 
@@ -140,7 +141,7 @@ class MONDELayer(tfk.layers.Layer):
                 else:
                     yx = y_margin
 
-                cdf = self._h_xys_transforms[i](yx)
+                cdf = constrain_cdf(self._h_xys_transforms[i](yx))
 
                 grads = tape.gradient(cdf, y_margin)
 
@@ -160,12 +161,12 @@ class MONDELayer(tfk.layers.Layer):
             else:
                 lls.append(None)
 
-        predictions.update(self.log_likelihood_from_cdfs_transforms(cdfs, lls, x, training))
+        predictions.update(self.log_likelihood_from_cdfs_transforms(cdfs, lls, x, training=training))
         return predictions
 
     def log_likelihood_from_cdfs_transforms(self, cdfs, lls, x, training, marginals=None):
 
-        if len(lls) == 1 or self.cov_type is None:
+        if len(lls) == 1 or self._cov_type is None:
             return {'log_likelihood': lls[0]}
 
         quantiles = []
@@ -183,15 +184,14 @@ class MONDELayer(tfk.layers.Layer):
         elif self._cov_type == "param_cor":
             cor = self.correlation_directly(x)
         elif self._cov_type == "const_cov":
-
-            batch_cov = self.tf_cov(quantiles_combined)
-            batch_cov = self.assert_cov_positive_definite(batch_cov)
-
-            if training:
-                if tf.reduce_all(tf.is_nan(self.cov_var)):
-                    self._cov_var = batch_cov
+            is_nan = tf.reduce_all(tf.math.is_nan(self._cov_var))
+            if training or is_nan:
+                batch_cov = self.tf_cov(quantiles_combined)
+                batch_cov = self.assert_cov_positive_definite(batch_cov)
+                if is_nan:
+                    self._cov_var.assign(batch_cov)
                 else:
-                    self._cov_var -= self._covariance_learning_rate * (self._cov_var - batch_cov)
+                    self._cov_var.assign_sub(self._covariance_learning_rate * (self._cov_var - batch_cov))
 
             cor = self.corr()
             cor = tf.expand_dims(cor, axis=0)
@@ -208,22 +208,22 @@ class MONDELayer(tfk.layers.Layer):
 
         # if x is not None:
         ##### original met copula where I copute x' * (inv(R)-I) * x
-        # c_pdf_log_prob = -0.5*tf.log(tf.matrix_determinant(cor) + 1e-6)
+        # c_pdf_log_prob = -0.5*tf.math.log(tf.matrix_determinant(cor) + 1e-6)
         #
         # inv_cor_min_eye = tf.matrix_inverse(cor) - tf.eye(len(cdfs))
         #
         # inv_cor_min_eye = tf.tile(inv_cor_min_eye,
-        #                           [tf.div(tf.shape(quantiles_combined)[0], tf.shape(inv_cor_min_eye)[0]), 1, 1])
+        #                           [tf.math.divide(tf.shape(quantiles_combined)[0], tf.shape(inv_cor_min_eye)[0]), 1, 1])
         # c_pdf_log_exponent = tf.matmul(tf.expand_dims(quantiles_combined, axis=1), inv_cor_min_eye)
         # c_pdf_log_exponent = - 0.5 * tf.matmul(c_pdf_log_exponent, tf.expand_dims(quantiles_combined, axis=-1))
         # c_pdf_log_exponent = tf.reshape(c_pdf_log_exponent, [-1, 1])
         # c_pdf_log_prob = tf.reshape(c_pdf_log_prob, [-1, 1]) + c_pdf_log_exponent
 
         ##### compute x'* inv(R) * x and than separately x'* I * x
-        # c_pdf_log_prob = -0.5 * tf.log(tf.matrix_determinant(cor) + 1e-6)
+        # c_pdf_log_prob = -0.5 * tf.math.log(tf.matrix_determinant(cor) + 1e-6)
         #
         # inv_cor = tf.matrix_inverse(cor)
-        # inv_cor = tf.tile(inv_cor, [tf.div(tf.shape(quantiles_combined)[0], tf.shape(inv_cor)[0]), 1, 1])
+        # inv_cor = tf.tile(inv_cor, [tf.math.divide(tf.shape(quantiles_combined)[0], tf.shape(inv_cor)[0]), 1, 1])
         #
         # cor_prod = -0.5 * tf.matmul(tf.expand_dims(quantiles_combined, axis=1), inv_cor)
         # cor_prod = tf.matmul(cor_prod, tf.expand_dims(quantiles_combined, axis=-1))
@@ -274,8 +274,8 @@ class MONDELayer(tfk.layers.Layer):
         return tf.add(tf.matmul(cov_u, cov_u, transpose_a=True), diagonal, name="covariance")
 
     def correlation_matrix(self, cov):
-        std_dev = tf.matrix_diag(tf.sqrt(tf.matrix_diag_part(cov)))
-        std_dev_inv = tf.matrix_inverse(std_dev)
+        std_dev = tf.matrix_diag(tf.sqrt(tf.linalg.matrix_diag_part(cov)))
+        std_dev_inv = tf.linalg.inv(std_dev)
 
         corr = tf.matmul(tf.matmul(std_dev_inv, cov), std_dev_inv)
         # corr = ((tf.matrix_transpose(corr) + corr) / 2)
@@ -287,7 +287,7 @@ class MONDELayer(tfk.layers.Layer):
         # corr = corr + tf.matrix_transpose(corr)
 
         # setting diagonal to be 1s
-        corr = tf.matrix_set_diag(corr, tf.fill(tf.slice(tf.shape(corr), [0], [2]), 1.0), name="correlation")
+        corr = tf.linalg.set_diag(corr, tf.fill(tf.slice(tf.shape(corr), [0], [2]), 1.0), name="correlation")
 
         return corr
 
@@ -309,7 +309,7 @@ class MONDELayer(tfk.layers.Layer):
         B = tf.concat(B, axis=1)
         B = tf.reshape(B, (-1, self._y_size, r))
         cor = tf.matmul(B, B, transpose_b=True)
-        cor = tf.matrix_set_diag(cor, tf.fill(tf.slice(tf.shape(cor), [0], [2]), 1.0), name="correlation")
+        cor = tf.linalg.set_diag(cor, tf.fill(tf.slice(tf.shape(cor), [0], [2]), 1.0), name="correlation")
         return cor
 
     def b_mat_el(self, theta_mat, i, j, r):
@@ -334,25 +334,25 @@ class MONDELayer(tfk.layers.Layer):
         return cov_xx
 
     def corr(self):
-        diag = tf.diag(tf.diag_part(self._cov_var))
-        D = tf.sqrt(diag)
-        DInv = tf.matrix_inverse(D)
+        diag = tf.linalg.diag(tf.linalg.diag_part(self._cov_var))
+        D = tf.math.sqrt(diag)
+        DInv = tf.linalg.inv(D)
         corr = tf.matmul(tf.matmul(DInv, self._cov_var), DInv)
 
-        corr = tf.matrix_band_part(corr, -1, 0)
-        corr = corr + tf.matrix_transpose(corr)
+        corr = tf.linalg.band_part(corr, -1, 0)
+        corr = corr + tf.linalg.matrix_transpose(corr)
 
-        corr = tf.matrix_set_diag(corr, [1.] * corr.shape[0].value, name="correlation")
+        corr = tf.linalg.set_diag(corr, [1.] * corr.shape[0], name="correlation")
         return corr
 
-    def assert_cov_positive_definite(cov):
-        e, v = tf.self_adjoint_eig(cov)
+    def assert_cov_positive_definite(self, cov):
+        e, v = tf.linalg.eigh(cov)
         i = tf.constant(0)
 
         def adjust_cov(i, cov, eig_val):
             eig_val_max = tf.maximum(1e-6, tf.abs(eig_val))
-            cov1 = cov + tf.eye(cov.shape[0].value) * tf.abs(eig_val_max)
-            e, v = tf.self_adjoint_eig(cov1)
+            cov1 = cov + tf.eye(cov.shape[0]) * tf.abs(eig_val_max)
+            e, v = tf.linalg.eigh(cov1)
             return tf.add(i, 1), cov1, e[0]
 
         def cond(i, cov, eig_val):
@@ -364,27 +364,27 @@ class MONDELayer(tfk.layers.Layer):
     def compute_log_likelihood_for_cor(self, quantiles_combined, cor, ll_marginals):
         ll_marginals_sum = tf.add_n(ll_marginals)
 
-        cor = cor + tf.diag([1e-3] * cor.shape[-1])
-        c_pdf_log_prob = -0.5 * tf.log(tf.matrix_determinant(cor) + 1e-27)
+        cor = cor + tf.linalg.diag([1e-3] * cor.shape[-1])
+        c_pdf_log_prob = -0.5 * tf.math.log(tf.linalg.det(cor) + 1e-27)
 
-        V = tf.linalg.cholesky(tf.tile(cor, [tf.div(tf.shape(quantiles_combined)[0], tf.shape(cor)[0]), 1, 1]))
+        V = tf.linalg.cholesky(tf.tile(cor, [tf.math.divide(tf.shape(quantiles_combined)[0], tf.shape(cor)[0]), 1, 1]))
         z = tf.linalg.solve(V, tf.expand_dims(quantiles_combined, -1))
         cor_prod = -0.5 * tf.reshape(tf.matmul(z, z, transpose_a=True), [-1, 1])
 
-        id_prod = -0.5 * tf.matmul(quantiles_combined, tf.eye(quantiles_combined.shape[1].value))
+        id_prod = -0.5 * tf.matmul(quantiles_combined, tf.eye(quantiles_combined.shape[1]))
         id_prod = tf.reduce_sum(tf.multiply(id_prod, quantiles_combined), axis=1)
         id_prod = tf.reshape(id_prod, [-1, 1])
 
         c_pdf_log_prob = tf.reshape(c_pdf_log_prob, [-1, 1]) + cor_prod - id_prod
 
         ##### do not use tiliing in case of one cor matrix but strangely it didn't help with throughput
-        #     c_pdf_log_prob = -0.5 * tf.log(tf.matrix_determinant(cor[0]) + params["t1"])
+        # c_pdf_log_prob = -0.5 * tf.math.log(tf.matrix_determinant(cor[0]) + 1e-3)
         #
-        #     inv_cor_min_eye = tf.matrix_inverse(cor[0]) - tf.eye(len(cdfs))
-        #     c_pdf_log_exponent = tf.matmul(quantiles_combined, inv_cor_min_eye)
-        #     c_pdf_log_exponent = - 0.5 * tf.reduce_sum(tf.multiply(c_pdf_log_exponent, quantiles_combined), 1,
-        #                                                keep_dims=True)
-        #     c_pdf_log_prob = tf.reshape(c_pdf_log_prob, [-1, 1]) + c_pdf_log_exponent
+        # inv_cor_min_eye = tf.linalg.inv(cor[0]) - tf.eye(self._y_size)
+        # c_pdf_log_exponent = tf.matmul(quantiles_combined, inv_cor_min_eye)
+        # c_pdf_log_exponent = - 0.5 * tf.reduce_sum(tf.multiply(c_pdf_log_exponent, quantiles_combined), 1,
+        #                                            keep_dims=True)
+        # c_pdf_log_prob = tf.reshape(c_pdf_log_prob, [-1, 1]) + c_pdf_log_exponent
 
         return tf.add(c_pdf_log_prob, ll_marginals_sum)
 
