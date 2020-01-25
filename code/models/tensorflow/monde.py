@@ -42,7 +42,7 @@ class MONDELayer(tfk.layers.Layer):
                                                        for units in self._arch_x_transform], name="x_transform")
 
         mon_size_ins = [1] + [units - self._hxy_x_size for units in self._arch_hxy]
-        non_mon_size_ins = [self._arch_x_transform[-1]] + [self._hxy_x_size for _ in self._arch_hxy]
+        non_mon_size_ins = [self._arch_x_transform[-1] if self._arch_x_transform else self._x_size] + [self._hxy_x_size for _ in self._arch_hxy]
         mon_size_outs = [units - self._hxy_x_size for units in self._arch_hxy] + [1]
         non_mon_size_outs = [self._hxy_x_size for _ in self._arch_hxy] + [0]
 
@@ -117,7 +117,7 @@ class MONDELayer(tfk.layers.Layer):
         if y is None:
             raise NotImplementedError
 
-        if x is not None:
+        if x is not None and self._arch_x_transform:
             x = self._x_transform(x)
 
         cdfs, pdfs = self.marginal_density_estimator(x, y)

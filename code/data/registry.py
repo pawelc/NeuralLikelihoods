@@ -54,15 +54,22 @@ def sin_np(x_slice, y_slice, **kwargs):
     return data_loader
 
 
-def inv_sin_normal():
-    data_loader = data.TrendingSinusoid(name="inv_sin_noise", normalize=True,x_slice=slice(None,1),
-                                        y_slice=slice(1,None))
+def inv_sin_normal(x_slice=slice(None,1), y_slice=slice(1,None)):
+    data_loader = data.TrendingSinusoid(name="inv_sin_noise", normalize=True, x_slice=x_slice, y_slice=y_slice)
     data_loader.load_data()
     return data_loader
 
-def inv_sin_t_noise():
+def inv_sin_t():
     data_loader = data.TrendingSinusoid(name="inv_sin_t_noise", normalize=True, noise = "standard_t", df=3,
                                         x_slice=slice(None,1), y_slice=slice(1,None))
+    data_loader.load_data()
+    return data_loader
+
+def mv_nonlinear():
+    data_loader = data.TfGenerator(name="mv_nonlinear", x_slice=slice(None, -2), y_slice=slice(-2, None),
+                                   samples=10000,
+                                   op_factory_x=UniformFactory(low=-10, high=10),
+                                   op_factory_y=MPGFactory())
     data_loader.load_data()
     return data_loader
 
@@ -163,14 +170,6 @@ def bsds300(x_slice, y_slice):
     # this data is preprocessed the same as in the MAF paper https://zenodo.org/record/1161203#.XEq6MFz7TZv
     data_loader = Bsds300(x_slice=x_slice, y_slice=y_slice,
                       file=os.path.join('{ROOT_DATA}/maf','BSDS300/BSDS300.hdf5'))
-    data_loader.load_data()
-    return data_loader
-
-def mpg():
-    data_loader = data.TfGenerator(data.Config(dir='data', x_slice=slice(None, -2), y_slice=slice(-2, None)).
-                                   add_param('samples', 10000).
-                                   add_param("op_factory", MPGFactory()).
-                                   add_param("x", np.reshape(np.random.uniform(-10, 10, 10000), (-1, 1))))
     data_loader.load_data()
     return data_loader
 

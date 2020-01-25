@@ -8,6 +8,8 @@ import numpy as np
 
 class MPGFactory:
     def __call__(self, x):
+        if len(x.shape) == 1:
+            x = tf.expand_dims(x, 1)
         sd1 = 4
         sd2 = 3
         corr = 0.7

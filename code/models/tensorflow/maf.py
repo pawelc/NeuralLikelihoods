@@ -1,3 +1,5 @@
+from functools import partial
+
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -67,15 +69,18 @@ class MAF(TfModel):
 
         super(MAF, self).build(list(input_shape))
 
+    @tf.function
     def call(self, inputs, training=True):
         return self.log_prob(inputs[0], inputs[1], training=training)
 
+    @tf.function
     def log_prob(self, y, x=None, training=True):
         prev_training_state = self.training(training)
         res = self._distribution.log_prob(y, bijector_kwargs={'masked_autoregressive_flow':{'z':x}})
         self.training(prev_training_state)
         return res
 
+    @tf.function
     def prob(self, y, x=None, training=True):
         prev_training_state = self.training(training)
         res = self._distribution.prob(y, bijector_kwargs={'masked_autoregressive_flow':{'z':x}})
