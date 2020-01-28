@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 from conf import conf
+from models.tensorflow.common import TfModel
 from utils import get_all_2_element_combinations
 
 tfk = tf.keras
@@ -57,21 +58,15 @@ class MonotonicConstraint(tfk.constraints.Constraint):
 def softplus(x):
     return tf.math.log(1+tf.math.exp(-tf.math.abs(x))) + tfk.activations.relu(x)
 
-class PumondePFor(tfk.models.Model):
+class PumondePFor(TfModel):
 
-    def __init__(self, arch_x_transform, arch_hxy, hxy_x_size, arch_xy_comb,
-                 input_event_shape=None, covariate_shape=None, **kwargs):
+    def __init__(self, arch_x_transform, arch_hxy, hxy_x_size, arch_xy_comb, **kwargs):
         super().__init__(**kwargs)
 
         self._arch_x_transform = arch_x_transform
         self._arch_hxy = arch_hxy
         self._arch_xy_comb = arch_xy_comb
         self._hxy_x_size = hxy_x_size
-
-        self._input_event_shape = input_event_shape
-        if self._input_event_shape is not None:
-            self._y_size = self._input_event_shape[-1]
-        self._covariate_shape = covariate_shape
 
     def build(self, input_shape):
         self._input_event_shape = input_shape[0]
@@ -200,30 +195,11 @@ class PumondePFor(tfk.models.Model):
     def _t_transform(self, xy_prod):
         return self._xy_comb_transform(xy_prod)
 
-    def compute_output_shape(self, input_shape):
-        return (input_shape[0], self._input_event_size)
-
-    def save_to_json(self, file):
-        with open(file, "w") as opened_file:
-            json_obj = json.loads(self.to_json())
-            json_obj["class_name"] = ".".join([self.__module__, self.__class__.__name__])
-            opened_file.write(json.dumps(json_obj))
-
     def get_config(self):
         return {'arch_x_transform': self._arch_x_transform,
                 'arch_hxy': self._arch_hxy,
                 'arch_xy_comb': self._arch_xy_comb,
-                'hxy_x_size': self._hxy_x_size,
-                'input_event_shape': self._input_event_shape,
-                'covariate_shape': self._covariate_shape}
-
-    @property
-    def input_event_shape(self):
-        return self._input_event_shape
-
-    @property
-    def covariate_shape(self):
-        return self._covariate_shape
+                'hxy_x_size': self._hxy_x_size}
 
     def _create_yx_to_hxy_transform(self):
         in_size = self._y_size + self._arch_x_transform[-1]

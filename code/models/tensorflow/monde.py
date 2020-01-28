@@ -1,5 +1,3 @@
-import json
-
 from conf import conf
 import  models.tensorflow.mykeras.layers as mylayers
 import tensorflow as tf
@@ -58,8 +56,8 @@ class MONDELayer(tfk.layers.Layer):
             , name="h_xy_%d" % i) for i in range(self._y_size)]
 
         if self._arch_cov_transform:
-            self._cov_transform = tfk.Sequential(layers=[tfk.Dense(units, activation="tanh", name="cov_layer_%d" % i,
-                                                                   kernel_initializer=tf.initializers.random_normal(
+            self._cov_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation="tanh", name="cov_layer_%d" % i,
+                                                                   kernel_initializer=tfk.initializers.RandomNormal(
                                                                        mean=0, stddev=0.01))
                                                          for i, units in enumerate(self._arch_cov_transform)])
         else:
@@ -72,7 +70,7 @@ class MONDELayer(tfk.layers.Layer):
             if self._x_size > 0:
                 if self._arch_cov_transform:
                     last_hidden_units_size = self._arch_cov_transform[-1]
-                    init = tf.initializers.random_normal(mean=0, stddev=0.01)
+                    init = tfk.initializers.RandomNormal(mean=0, stddev=0.01)
 
                     self._W_cov_u = tf.Variable(init(shape=[int(last_hidden_units_size / 2), self._y_size]),
                                                 dtype=getattr(tf, "float%s" % conf.precision), name="W_cov_u")
@@ -269,12 +267,12 @@ class MONDELayer(tfk.layers.Layer):
             cov_u = self._cov_u
             cov_d = tf.add(1e-27, tf.square(self._cov_d_raw, name="cov_d"))
 
-        diagonal = tf.matrix_diag(cov_d)
+        diagonal = tf.linalg.diag(cov_d)
 
         return tf.add(tf.matmul(cov_u, cov_u, transpose_a=True), diagonal, name="covariance")
 
     def correlation_matrix(self, cov):
-        std_dev = tf.matrix_diag(tf.sqrt(tf.linalg.matrix_diag_part(cov)))
+        std_dev = tf.linalg.diag(tf.sqrt(tf.linalg.diag_part(cov)))
         std_dev_inv = tf.linalg.inv(std_dev)
 
         corr = tf.matmul(tf.matmul(std_dev_inv, cov), std_dev_inv)
@@ -410,7 +408,7 @@ class MONDE(TfModel):
     def call(self, inputs):
         return self.monde_layer.call(inputs)
 
-    # @tf.function
+    @tf.function
     def prob(self, y, x, marginal=None, training=False):
         return self.monde_layer.prob(y=y, x=x, marginal=marginal, training=training)
 

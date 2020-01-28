@@ -164,9 +164,9 @@ class Dense(tfk.layers.Layer):
 
   def call(self, inputs):
     rank = len(inputs.shape)
-    kerel = self.kernel
+    kernel = self.kernel
     if self.kernel_constraint is not None:
-        kernel = self.kernel_constraint(self.kernel)
+        kernel = self.kernel_constraint(kernel)
     if rank > 2:
       # Broadcasting is required for the inputs.
       outputs = tfk.standard_ops.tensordot(inputs, kernel, [[rank - 1], [0]])

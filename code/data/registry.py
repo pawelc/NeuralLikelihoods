@@ -65,11 +65,12 @@ def inv_sin_t():
     data_loader.load_data()
     return data_loader
 
-def mv_nonlinear():
-    data_loader = data.TfGenerator(name="mv_nonlinear", x_slice=slice(None, -2), y_slice=slice(-2, None),
+def mv_nonlinear(x_slice=slice(None, -2), y_slice=slice(-2, None), **kwargs):
+    data_loader = data.TfGenerator(name="mv_nonlinear", x_slice=x_slice, y_slice=y_slice,
                                    samples=10000,
                                    op_factory_x=UniformFactory(low=-10, high=10),
-                                   op_factory_y=MPGFactory())
+                                   op_factory_y=MPGFactory(),
+                                   **kwargs)
     data_loader.load_data()
     return data_loader
 
