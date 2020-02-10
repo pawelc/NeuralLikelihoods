@@ -37,7 +37,7 @@ class MONDELayer(tfk.layers.Layer):
         self._x_size = input_shape[1][-1]
 
         if self._arch_x_transform:
-            self._x_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation='sigmoid')
+            self._x_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation='tanh')
                                                        for units in self._arch_x_transform], name="x_transform")
 
         mon_size_ins = [1] + [units - self._hxy_x_size for units in self._arch_hxy]
@@ -46,7 +46,7 @@ class MONDELayer(tfk.layers.Layer):
         non_mon_size_outs = [self._hxy_x_size for _ in self._arch_hxy] + [0]
 
         self._h_xys_transforms = [tfk.Sequential(
-            layers=[mylayers.Dense(units, activation='sigmoid',
+            layers=[mylayers.Dense(units, activation='sigmoid' if layer == len(self._arch_hxy) else 'tanh',
                                    kernel_constraint=mylayers.MonotonicConstraint(mon_size_in, non_mon_size_in,
                                                                                   mon_size_out, non_mon_size_out),
                                    name="h_xy_%d_%d" % (i, layer))

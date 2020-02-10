@@ -11,14 +11,16 @@ import numpy as np
 
 class MondeARMADELayer(tfk.layers.Layer):
 
-    def __init__(self, arch, transform="tanh", order = None, x_transform_size=0,
-                 mk_arch = None, **kwargs):
+    def __init__(self, arch, transform="tanh", order = None, x_transform_size=0, x_arch=None,
+                 mk_arch = [], **kwargs):
         super().__init__(**kwargs)
 
         self._order = order
         self._arch = arch
         self._transform = transform
         self._x_transform_size = x_transform_size
+        self._x_transform = None
+        self._x_arch = x_arch
         if mk_arch:
             self._mk_arch = [np.asarray(arr) for arr in mk_arch]
         else:
@@ -32,8 +34,12 @@ class MondeARMADELayer(tfk.layers.Layer):
 
         self._transforms = []
         self._biases = []
-        dim_in = self._y_size + self._x_size
+        dim_in = self._y_size + (self._x_arch[-1] if self._x_arch else self._x_size)
         num_layers = len(self._arch) + 1
+
+        if self._x_arch:
+            self._x_transform = tfk.Sequential(layers=[tfk.layers.Dense(units, activation='tanh')
+                               for units in self._x_arch], name="x_transform")
 
         for layer_i, dim_out in enumerate(self._arch + [self._y_size]):
 
@@ -68,6 +74,9 @@ class MondeARMADELayer(tfk.layers.Layer):
             raise NotImplementedError
 
         number_of_evaluations = 1 if training else number_of_evaluations
+
+        if self._x_transform:
+            x = self._x_transform(x)
 
         ll_per_eval = []
         for eval_i in range(number_of_evaluations):
@@ -131,8 +140,9 @@ class MondeARMADELayer(tfk.layers.Layer):
             transformed_data = y
 
         num_layers = len(self._arch)+1
-        dim_in = self._y_size + self._x_size
-        mk_in = np.concatenate([[-1]*self._x_size, self._order])
+        x_size = self._x_arch[-1] if self._x_arch else self._x_size
+        dim_in = self._y_size + x_size
+        mk_in = np.concatenate([[-1]*x_size, self._order])
         for layer_i, dim_out in enumerate(self._arch + [self._y_size]):
             last_layer = layer_i == num_layers - 1
 
@@ -165,15 +175,16 @@ class MondeARMADELayer(tfk.layers.Layer):
 
     def get_config(self):
         return {'order': self._order, 'arch': self._arch, 'transform': self._transform,
-                'x_transform_size': self._x_transform_size, 'mk_arch' : self._mk_arch}
+                'x_transform_size': self._x_transform_size, 'mk_arch' : self._mk_arch,
+                'x_arch': self._x_arch}
 
 class MondeARMADE(TfModel):
 
     def __init__(self, arch, transform="tanh", order = None, x_transform_size=0,
-                 mk_arch = [], **kwargs):
+                 mk_arch = [], x_arch = [],**kwargs):
         super().__init__(**kwargs)
         self.monde_layer = MondeARMADELayer(arch=arch, transform=transform, order = order, x_transform_size=x_transform_size,
-                                            mk_arch = mk_arch)
+                                            mk_arch = mk_arch, x_arch=x_arch)
 
     def build(self, input_shape):
         self.monde_layer.build(input_shape)
