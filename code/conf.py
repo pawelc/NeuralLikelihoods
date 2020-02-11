@@ -3,7 +3,7 @@ class Conf:
 
     def __init__(self):
         self.dir = None
-        self.max_num_epochs = None
+        self.max_num_epochs = -1
         self.num_workers = None
         self.visible_device_list = None
         self.device_placement_mapping = []

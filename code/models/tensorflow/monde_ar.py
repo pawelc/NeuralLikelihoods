@@ -1,6 +1,5 @@
 import tensorflow as tf
 
-import models.tensorflow.mykeras.layers as mylayers
 from conf import conf
 from models.tensorflow.common import TfModel
 from models.tensorflow.utils import constrain_cdf
@@ -10,21 +9,17 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 import numpy as np
 
-
-class MondeAR(TfModel):
-
+class MondeARLayer(tfk.layers.Layer):
     def __init__(self, arch_hxy, arch_x_transform = None, sxl2=None, positive_transform="square", **kwargs):
         super().__init__(**kwargs)
         self._arch_hxy = arch_hxy
         self._arch_x_transform = arch_x_transform
         self._sxl2 = sxl2
         self._positive_transform = positive_transform
-        self._x_transform = None
+        self._x_transforms = None
 
-
-        self._h_xys_transforms = None
-        self._h_xy_weights = []
-        self._h_xy_biases = []
+        self._h_xy_weights = {}
+        self._h_xy_biases = {}
 
         self._h_xy_w_mon = {}
         self._h_xy_w_non_mon = {}
@@ -41,36 +36,11 @@ class MondeAR(TfModel):
             self._x_transforms = []
             for y_i in range(self._y_size):
                 self._x_transforms.append(tfk.Sequential(layers=[tfk.layers.Dense(units, activation='tanh')
-                                                       for units in self._arch_x_transform], name="x_transform_%d"%y_i))
+                                                                 for units in self._arch_x_transform],
+                                                         name="x_transform_%d" % y_i))
 
-        # mon_size_ins = [1] + [units for units in self._arch_hxy]
-        # non_mon_size_ins = [self._arch_x_transform[-1] if self._arch_x_transform else 0] + [0]* len(self._arch_hxy)
-        # mon_size_outs = [units for units in self._arch_hxy] + [1]
-        # non_mon_size_outs = [0] * (len(self._arch_hxy) + 1)
-        #
-        # self._h_xys_transforms = [tfk.Sequential(
-        #     layers=[mylayers.Dense(units, activation='sigmoid',
-        #                            kernel_constraint=mylayers.MonotonicConstraint(mon_size_in, non_mon_size_in,
-        #                                                                           mon_size_out, non_mon_size_out),
-        #                            name="h_xy_%d_%d" % (i, layer))
-        #             for layer, units, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out in
-        #             zip(range(len(self._arch_hxy) + 1), self._arch_hxy + [1], mon_size_ins, non_mon_size_ins,
-        #                 mon_size_outs,
-        #                 non_mon_size_outs)]
-        #     , name="h_xy_%d" % i) for i in range(self._y_size)]
+        super(MondeARLayer, self).build(input_shape)
 
-
-        super(MondeAR, self).build(input_shape)
-
-    @tf.function
-    def call(self, inputs, training=False):
-        return self.log_prob(inputs[0], inputs[1], training=training)
-
-    @tf.function
-    def prob(self, y, x, marginal=None, training=False):
-        return tf.math.exp(self.log_prob(y=y, x=x, marginal=marginal, training=training))
-
-    @tf.function
     def log_prob(self, y, x, marginal=None, marginals=None, training=False):
         if y is None:
             raise NotImplementedError
@@ -88,13 +58,14 @@ class MondeAR(TfModel):
             x_transform = self._x_transforms[y_i](x)
             with tf.GradientTape(watch_accessed_variables=False) as tape:
                 tape.watch(y_marginal)
-                # h_xy_input = tf.concat([y_marginal, x_transform], axis=1)
-                # cdf = constrain_cdf(self._h_xys_transforms[y_i](h_xy_input))
-                cdf = self.cdf_estimator(x_transform, y_marginal, name="y_%d"%y_i)
+                cdf = self.cdf_estimator(x_transform, y_marginal, name="y_%d" % y_i)
                 pdf = tape.gradient(cdf, y_marginal)
                 lls.append(tf.math.log(pdf + 1e-27))
 
         return tf.add_n(lls)
+
+    def prob(self, y, x, marginal=None, training=False):
+        return tf.math.exp(self.log_prob(y=y, x=x, marginal=marginal, training=training))
 
     def cdf_estimator(self, x_transform, y_margin, name):
         if self._sxl2:
@@ -104,7 +75,7 @@ class MondeAR(TfModel):
                 x_transform, y_margin, activation=tf.nn.tanh, name=name))
         return cdf
 
-    def create_cdf_layer_partial_monotonic_mlp(self, x_batch, y_batch,final_activation=tf.nn.sigmoid,
+    def create_cdf_layer_partial_monotonic_mlp(self, x_batch, y_batch, final_activation=tf.nn.sigmoid,
                                                activation=tf.nn.tanh, name=""):
         if x_batch is None:
             layer = y_batch
@@ -113,28 +84,26 @@ class MondeAR(TfModel):
 
         if len(self._arch_hxy) > 1:
             layer = self.create_partially_monotone_dense_layer(layer, self._arch_hxy[0],
-                                                          0 if x_batch is None else x_batch.shape[-1],
-                                                          y_batch.shape[-1],
-                                                          activation=activation, name=name + "_0")
+                                                               0 if x_batch is None else x_batch.shape[-1],
+                                                               y_batch.shape[-1],
+                                                               activation=activation, name=name + "_0")
 
         for i, size in enumerate(self._arch_hxy[1:-1]):
             layer = self.create_monotone_dense_layer(layer, size, activation=activation,
-                                                     name = name + "_%d"%(i+1))
-
+                                                     name=name + "_%d" % (i + 1))
 
         if len(self._arch_hxy) > 1:
             layer = self.create_monotone_dense_layer(layer, self._arch_hxy[-1], activation=activation,
-                                                     name = name + "_%d"%len(self._arch_hxy))
+                                                     name=name + "_%d" % len(self._arch_hxy))
         elif len(self._arch_hxy) == 1:
             layer = self.create_partially_monotone_dense_layer(layer, self._arch_hxy[-1],
-                                                          0 if x_batch is None else x_batch.shape[-1],
-                                                          y_batch.shape[-1],
-                                                          activation=activation,
-                                                               name = name + "_0")
-
+                                                               0 if x_batch is None else x_batch.shape[-1],
+                                                               y_batch.shape[-1],
+                                                               activation=activation,
+                                                               name=name + "_0")
 
         cdf = self.create_monotone_dense_layer(layer, 1, activation=final_activation,
-                                               name=name + "_%d"%(len(self._arch_hxy)+1))
+                                               name=name + "_%d" % (len(self._arch_hxy) + 1))
 
         return cdf
 
@@ -145,10 +114,10 @@ class MondeAR(TfModel):
         else:
             shape = (num_mon_vars, units)
             scale = 6. / np.sum(shape)
-            self._h_xy_w_mon[name]=self.add_weight(initializer=tfk.initializers.RandomNormal(0., scale),
-                                                      shape=shape,
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_w_mon_%s"%name)
+            self._h_xy_w_mon[name] = self.add_weight(initializer=tfk.initializers.RandomNormal(0., scale),
+                                                     shape=shape,
+                                                     dtype=getattr(tf, "float%s" % conf.precision),
+                                                     name="transform_w_mon_%s" % name)
             w_mon = self._h_xy_w_mon[name]
 
         w_mon = self.positive_weight_transform(w_mon)
@@ -159,10 +128,9 @@ class MondeAR(TfModel):
             else:
                 shape = (num_non_mon_vars, units)
                 self._h_xy_w_non_mon[name] = self.add_weight(shape=shape,
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_w_non_mon_%s" % name)
+                                                             dtype=getattr(tf, "float%s" % conf.precision),
+                                                             name="transform_w_non_mon_%s" % name)
                 w_non_mon = self._h_xy_w_non_mon[name]
-
 
             w = tf.concat([w_non_mon, w_mon], axis=0)
         else:
@@ -172,10 +140,10 @@ class MondeAR(TfModel):
             b = self._h_xy_w_biases[name]
         else:
             shape = (units)
-            self._h_xy_w_biases[name]=self.add_weight(initializer=tfk.initializers.zeros(),
-                                                      shape=shape,
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_b_%s"%name)
+            self._h_xy_w_biases[name] = self.add_weight(initializer=tfk.initializers.zeros(),
+                                                        shape=shape,
+                                                        dtype=getattr(tf, "float%s" % conf.precision),
+                                                        name="transform_b_%s" % name)
             b = self._h_xy_w_biases[name]
 
         return activation(tf.matmul(input_batch, w) + b)
@@ -186,10 +154,10 @@ class MondeAR(TfModel):
         else:
             shape = (input_batch.shape[-1], units)
             scale = 6. / np.sum(shape)
-            self._h_xy_w_mon[name]=self.add_weight(initializer=tfk.initializers.RandomNormal(0., scale),
-                                                      shape=shape,
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_w_mon_%s"%name)
+            self._h_xy_w_mon[name] = self.add_weight(initializer=tfk.initializers.RandomNormal(0., scale),
+                                                     shape=shape,
+                                                     dtype=getattr(tf, "float%s" % conf.precision),
+                                                     name="transform_w_mon_%s" % name)
             w = self._h_xy_w_mon[name]
 
         w = self.positive_weight_transform(w)
@@ -198,17 +166,16 @@ class MondeAR(TfModel):
             b = self._h_xy_w_biases[name]
         else:
             shape = (units)
-            self._h_xy_w_biases[name]=self.add_weight(initializer=tfk.initializers.zeros(),
-                                                      shape=shape,
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_b_%s"%name)
+            self._h_xy_w_biases[name] = self.add_weight(initializer=tfk.initializers.zeros(),
+                                                        shape=shape,
+                                                        dtype=getattr(tf, "float%s" % conf.precision),
+                                                        name="transform_b_%s" % name)
             b = self._h_xy_w_biases[name]
 
         if activation is None:
             return tf.add(tf.matmul(input_batch, w), b)
         else:
             return activation(tf.add(tf.matmul(input_batch, w), b))
-
 
     def positive_weight_transform(self, w):
         if self._positive_transform == "exp":
@@ -247,28 +214,26 @@ class MondeAR(TfModel):
             mon_size_out = out_size - self._sxl2
             non_mon_size_out = self._sxl2
 
-            layer = self.create_mixed_layer(i, layer, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out,
-                                       activation,
-                                       "xy_layer_%d" % i)
+            layer = self.create_mixed_layer(layer, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out,
+                                            activation,
+                                            "xy_layer_%d" % i)
 
         mon_size_in = layer.shape[-1] - self._sxl2
         non_mon_size_in = self._sxl2
-        return self.create_mixed_layer(len(self._arch_hxy),layer, mon_size_in, non_mon_size_in, last_layer_mon_size_out,
-                                  last_layer_non_mon_size_out, final_activation, "xy_layer_cdf")
+        return self.create_mixed_layer(layer, mon_size_in, non_mon_size_in, last_layer_mon_size_out,
+                                       last_layer_non_mon_size_out, final_activation, "xy_layer_cdf")
 
-    def create_mixed_layer(self, i, layer, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out, activation, name):
+    def create_mixed_layer(self, layer, mon_size_in, non_mon_size_in, mon_size_out, non_mon_size_out, activation, name):
         if mon_size_in + non_mon_size_in != layer.shape[-1]:
             raise ValueError
 
-        if len(self._h_xy_weights) == i:
-            self._h_xy_weights.append(self.add_weight(initializer=tfk.initializers.glorot_uniform(),
-                                                      shape=(mon_size_in + non_mon_size_in,
-                                                             mon_size_out + non_mon_size_out),
-                                                      dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="transform_%d"%i))
-            w = self._h_xy_weights[-1]
-        else:
-            w = self._h_xy_weights[i]
+        if name not in self._h_xy_weights:
+            self._h_xy_weights[name] = self.add_weight(initializer=tfk.initializers.glorot_uniform(),
+                                                       shape=(mon_size_in + non_mon_size_in,
+                                                              mon_size_out + non_mon_size_out),
+                                                       dtype=getattr(tf, "float%s" % conf.precision),
+                                                       name=name)
+        w = self._h_xy_weights[name]
 
         mask_1_mon = np.zeros((mon_size_in + non_mon_size_in, mon_size_out + non_mon_size_out),
                               dtype=getattr(np, "float%s" % conf.precision))
@@ -277,26 +242,46 @@ class MondeAR(TfModel):
         mask_1_non_mon = np.zeros((mon_size_in + non_mon_size_in, mon_size_out + non_mon_size_out),
                                   dtype=getattr(np, "float%s" % conf.precision))
         mask_1_non_mon[mon_size_in:, :] = 1.0
-        # mask_1_non_mon[:, mon_size_out:] = 1.0
 
         w_mon = w * mask_1_mon * w
         w_non_mon = w * mask_1_non_mon
         w = w_mon + w_non_mon
 
-        if len(self._h_xy_biases) == i:
-            self._h_xy_biases.append(self.add_weight(initializer=tfk.initializers.zeros(),
+        if name not in self._h_xy_biases:
+            self._h_xy_biases[name] = self.add_weight(initializer=tfk.initializers.zeros(),
                                                       shape=(mon_size_out + non_mon_size_out),
                                                       dtype=getattr(tf, "float%s" % conf.precision),
-                                                      name="bias_%d" % i))
-            b = self._h_xy_biases[-1]
-        else:
-            b = self._h_xy_biases[i]
+                                                      name=name)
+        b = self._h_xy_biases[name]
 
         return activation(tf.add(tf.matmul(layer, w), b))
 
+
+class MondeAR(TfModel):
+
+    def __init__(self, arch_hxy, arch_x_transform = None, sxl2=None, positive_transform="square", **kwargs):
+        super().__init__(**kwargs)
+        self._layer = MondeARLayer(arch_hxy, arch_x_transform, sxl2, positive_transform)
+
+    def build(self, input_shape):
+        self._layer.build(input_shape)
+        super(MondeAR, self).build(input_shape)
+
+    @tf.function
+    def call(self, inputs, training=False):
+        return self._layer.log_prob(inputs[0], inputs[1], training=training)
+
+    @tf.function
+    def prob(self, y, x, marginal=None, training=False):
+        return self._layer.prob(y, x, marginal, training)
+
+    @tf.function
+    def log_prob(self, y, x, marginal=None, marginals=None, training=False):
+        return self._layer.log_prob(y, x, marginal, marginals, training)
+
     def get_config(self):
-        return {'arch_hxy': self._arch_hxy, 'arch_x_transform': self._arch_x_transform,
-                'sxl2':self._sxl2, 'positive_transform':self._positive_transform}
+        return {'arch_hxy': self._layer._arch_hxy, 'arch_x_transform': self._layer._arch_x_transform,
+                'sxl2':self._layer._sxl2, 'positive_transform':self._layer._positive_transform}
 
     @property
     def model_name(self):

@@ -1,5 +1,3 @@
-import argparse
-import json
 import logging
 import os
 import traceback
@@ -9,42 +7,22 @@ import tensorflow as tf
 
 import utils as rm_utils
 from conf import conf
-from ipc import SharedMemory
 from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
 from my_log import init_logging
 from utils import resolve_dir
-init_logging(os.path.join(resolve_dir('{PROJECT_ROOT}'), "output.log"))
 
-if __name__ == '__main__':
+def predict_from_model(y,x, kwargs, op_names,model):
+    init_logging(os.path.join(resolve_dir('{PROJECT_ROOT}'), "output.log"))
     log = logging.getLogger("predict_from_model")
     try:
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--shm_prefix')
-        parser.add_argument('--kwargs')
-        parser.add_argument('--conf')
-        parser.add_argument('--tf_conf')
-        parser.add_argument('--model')
-        parser.add_argument('--op_names')
-
-        args = parser.parse_args()
-
-        kwargs = json.loads(args.kwargs)
         model_folder = resolve_dir(kwargs['model_dir'])
-        op_names = args.op_names.split(',')
-
-        shm = SharedMemory(args.shm_prefix)
-        conf.__dict__.update(json.loads(args.conf))
-        tf_conf.__dict__.update(json.loads(args.tf_conf))
-
         device = get_device(tf_conf, conf)
 
-        model = args.model
         log.info("using dev %s, kwargs: %s, conf: %s, tf_conf: %s, model: %s, model_folder: %s, op_names: %s",
                  device, kwargs, conf, tf_conf, model, model_folder, op_names)
-        data = shm.read({'y','x'})
 
-        log.info("date received y.shape: %s, x.shape: %s", data['y'].shape, data['x'].shape)
+        log.info("date received y.shape: %s, x.shape: %s", y.shape, x.shape)
 
         with tf.device(device):
             model = rm_utils.load_model_and_params(os.path.join(model_folder, "best_model"))
@@ -52,9 +30,7 @@ if __name__ == '__main__':
         marginals = kwargs['marginals']
 
         log.info("preparing dataset start")
-        dataset = tf.data.Dataset.from_tensor_slices(
-            (data['y'], data['x'])
-        )
+        dataset = tf.data.Dataset.from_tensor_slices((y, x))
         dataset = dataset.repeat(1)
         dataset = dataset.prefetch(3 * conf.eval_batch_size)
         dataset = dataset.batch(conf.eval_batch_size)
@@ -81,8 +57,7 @@ if __name__ == '__main__':
             collector.collect(results)
             log.info("collect completed")
 
-        shm.write(collector.result())
-        log.info("write completed")
+        return collector.result()
     except:
         error_msg = traceback.format_exc()
         log.error("Error in predict: %s", error_msg)

@@ -1,21 +1,16 @@
-import json
 import logging
 import os
-import argparse
 import traceback
 
 from conf import conf
-from data.data_utils import FileDataLoader
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as tfk
 
-from ipc import SharedMemory
 
 K = tfk.backend
 
-from experiment.early_stop import EarlyStop
-from models.tensorboard_v2 import TensorboardV2
+from models.tensorboard import Tensorboard
 from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
 from models.tensorflow.models import create_model
@@ -62,46 +57,22 @@ def prepare_data_sets(data_loader, batch_size, eval_batch_size, data_subset, log
     return train_dataset, val_dataset
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_state')
-    parser.add_argument('--shm_prefix')
-    parser.add_argument('--kwargs')
-    parser.add_argument('--conf')
-    parser.add_argument('--tf_conf')
-    parser.add_argument('--model')
-    parser.add_argument('--early_stop')
-
-    args = parser.parse_args()
-
-    kwargs = json.loads(args.kwargs)
-    model_folder = resolve_dir(kwargs['model_dir'])
-
+def create_model_and_train(kwargs, model_folder, data_loader, model, early_stop):
     init_logging(os.path.join(model_folder, "train.log"))
     log = logging.getLogger("create_model_and_train")
 
     stats_model_dir = resolve_dir(os.path.join(model_folder, "stats"))
-    tb = TensorboardV2(stats_model_dir)
+    tb = Tensorboard(stats_model_dir)
     try:
-        shm = SharedMemory(args.shm_prefix)
-        conf.__dict__.update(json.loads(args.conf))
-        tf_conf.__dict__.update(json.loads(args.tf_conf))
-
         device = get_device(tf_conf, conf)
 
-        data_loader = FileDataLoader(json.loads(args.data_state))
-        data_loader.load_data()
-
-        model = args.model
         log.info("Starting train for model: %s with kwargs: %s, conf: %s, tf_conf: %s, device: %s", model, kwargs,
                  conf, tf_conf, device)
         log.info("os.environ: %s", os.environ)
-        early_stop = EarlyStop(**json.loads(args.early_stop))
 
         batch_size = kwargs["bs"]
         data_subset = slice(conf.data_subset)
-        train_dataset, val_dataset = \
-            prepare_data_sets(data_loader, batch_size, conf.eval_batch_size,data_subset, log)
+        train_dataset, val_dataset = prepare_data_sets(data_loader, batch_size, conf.eval_batch_size,data_subset, log)
 
         log.info("Building model...")
         with tf.device(device):
@@ -153,7 +124,6 @@ if __name__ == '__main__':
         log.info("Closing CUDA device")
         cuda.select_device(0)
         cuda.close()
-        shm.write({'done': np.asarray([1])})
         tb.close()
         log.info("Train completed")
 

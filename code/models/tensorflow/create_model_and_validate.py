@@ -1,20 +1,15 @@
-import json
 import logging
 import os
-import argparse
 import traceback
 
 from conf import conf
-from data.data_utils import FileDataLoader
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as tfk
 
-from ipc import SharedMemory
-
 K = tfk.backend
 
-from models.tensorboard_v2 import TensorboardV2
+from models.tensorboard import Tensorboard
 from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
 from models.tensorflow.utils import SeMetrics
@@ -56,39 +51,16 @@ def prepare_data_sets(data_loader, eval_batch_size, data_subset, log, data_set_n
     return dataset
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_state')
-    parser.add_argument('--shm_prefix')
-    parser.add_argument('--kwargs')
-    parser.add_argument('--conf')
-    parser.add_argument('--tf_conf')
-    parser.add_argument('--model')
-    parser.add_argument('--early_stop')
-    parser.add_argument('--data_set_name')
-
-    args = parser.parse_args()
-
-    kwargs = json.loads(args.kwargs)
-    model_folder = resolve_dir(kwargs['model_dir'])
+def create_model_and_validate(kwargs, model_folder, data_loader, model, data_set_name):
 
     init_logging(os.path.join(model_folder, "train.log"))
     log = logging.getLogger("create_model_and_validate")
 
     stats_model_dir = resolve_dir(os.path.join(model_folder, "stats"))
-    tb = TensorboardV2(stats_model_dir)
-    data_set_name = args.data_set_name
+    tb = Tensorboard(stats_model_dir)
     try:
-        shm = SharedMemory(args.shm_prefix)
-        conf.__dict__.update(json.loads(args.conf))
-        tf_conf.__dict__.update(json.loads(args.tf_conf))
-
         device = get_device(tf_conf, conf)
 
-        data_loader = FileDataLoader(json.loads(args.data_state))
-        data_loader.load_data()
-
-        model = args.model
         log.info("Starting validation for model: %s with kwargs: %s, conf: %s, tf_conf: %s, device: %s", model, kwargs,
                  conf, tf_conf, device)
         log.info("os.environ: %s", os.environ)
@@ -103,7 +75,6 @@ if __name__ == '__main__':
 
         log.info("best model loaded")
 
-
         mean_metric = tf.keras.metrics.Mean(name='avg_ll', dtype=tf.float32)
         se_metric = SeMetrics()
 
@@ -114,17 +85,10 @@ if __name__ == '__main__':
 
         log.info("metrics computed")
 
-        result_arr = np.empty(2, np.float32)
-        result_arr[0] = mean_metric.result().numpy()
-        result_arr[1] = se_metric.result().numpy()
-
         se_metric.reset_states()
         mean_metric.reset_states()
 
-        shm.write({data_set_name: result_arr})
-
-        se_metric.reset_states()
-        mean_metric.reset_states()
+        return mean_metric.result().numpy(), se_metric.result().numpy()
 
     except:
         error_msg = traceback.format_exc()
@@ -137,5 +101,3 @@ if __name__ == '__main__':
         cuda.close()
         tb.close()
         log.info("Validation completed: %s"%data_set_name)
-
-
