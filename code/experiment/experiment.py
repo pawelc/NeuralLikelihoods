@@ -14,7 +14,6 @@ from experiment.early_stop import EarlyStop
 from experiment.hyper_param_opt import HyperParamSearch
 from experiment.progress import ProgressMonitor, NoOpProgressMonitor
 from models.tensorflow.conf import tf_conf
-from models.tensorflow.tf_eager_train_eval import TfEagerTrainEvalModelFactory
 from models.train_eval import TrainEvalModelFactory, Estimator
 from models.utils import save_best_model_exp, experiment_file
 from utils import resolve_dir

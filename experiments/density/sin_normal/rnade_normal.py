@@ -16,7 +16,7 @@ if __name__ == '__main__':
     conf.visible_device_list = [0, 1]
     conf.shuffle_train_data = True
     conf.precision = "32"
-    conf.eval_batch_size = 10000
+    conf.eval_batch_size = {'0': 10000, '1': 10000}
     conf.print_progress = True
 
     tf_conf.eval_throttle_secs = 0

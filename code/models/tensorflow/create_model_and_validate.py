@@ -56,7 +56,7 @@ def create_model_and_validate(kwargs, model_folder, data_loader, model, data_set
     init_logging(os.path.join(model_folder, "train.log"))
     log = logging.getLogger("create_model_and_validate")
 
-    stats_model_dir = resolve_dir(os.path.join(model_folder, "stats"))
+    stats_model_dir = os.path.join(model_folder, "stats")
     tb = Tensorboard(stats_model_dir)
     try:
         device = get_device(tf_conf, conf)

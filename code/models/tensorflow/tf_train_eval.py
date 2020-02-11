@@ -62,19 +62,20 @@ class TfTrainEvalModel(TrainEvalModel):
         super().__init__(factory, model, data_loader, name_fields, early_stopping)
 
     def call_me(self, model_dir, *varg, **kwargs):
-        kwargs['model_dir'] = resolve_dir(model_dir)
+        resolved_model_dir = resolve_dir(model_dir)
+        kwargs['model_dir'] = resolved_model_dir
 
         self.data_loader.load_data()
 
         self.log.info("About to train the model")
 
-        create_model_and_train(kwargs, model_dir, self.data_loader, self.model.name(), self.early_stopping)
+        create_model_and_train(kwargs, resolved_model_dir, self.data_loader, self.model.name(), self.early_stopping)
 
         self.log.info("Train done")
 
-        train = create_model_and_validate(kwargs, model_dir, self.data_loader, self.model.name(), "train")
-        valid = create_model_and_validate(kwargs, model_dir, self.data_loader, self.model.name(), "valid")
-        test = create_model_and_validate(kwargs, model_dir, self.data_loader, self.model.name(), "test")
+        train = create_model_and_validate(kwargs, resolved_model_dir, self.data_loader, self.model.name(), "train")
+        valid = create_model_and_validate(kwargs, resolved_model_dir, self.data_loader, self.model.name(), "valid")
+        test = create_model_and_validate(kwargs, resolved_model_dir, self.data_loader, self.model.name(), "test")
 
         res_train = {}
         if train is not None:
