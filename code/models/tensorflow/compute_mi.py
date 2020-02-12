@@ -7,7 +7,6 @@ import tensorflow as tf
 import utils
 from conf import conf
 from models.tensorflow.compute import get_device
-from models.tensorflow.conf import tf_conf
 from utils import resolve_dir
 from . import utils as tf_utils
 
@@ -21,7 +20,7 @@ def compute_mi(x, params, kwargs, y_size):
     mi = np.full((y_size, y_size), np.nan, dtype=np.float32)
 
     def run_for_combination(y_i, y_j):
-        device = get_device(tf_conf, conf)
+        device = get_device()
         def prob(**kwargs):
             y_list = [kwargs[y_var] for y_var in all_y_vars]
             y = tf.concat(y_list, axis=-1)

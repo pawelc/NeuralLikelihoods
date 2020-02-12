@@ -2,28 +2,6 @@ from inspect import signature
 
 import models.tensorflow.quadrature as quad
 import tensorflow as tf
-import numpy as np
-from conf import conf
-
-class SeMetrics(tf.keras.metrics.Metric):
-
-    def __init__(self, name='SE', **kwargs):
-        super(SeMetrics, self).__init__(name=name, **kwargs)
-        self.count = self.add_weight(name='count', initializer='zeros')
-        self.mean = self.add_weight(name='count', initializer='zeros')
-        self.m2 = self.add_weight(name='count', initializer='zeros')
-
-    def update_state(self, newValues):
-        for i in range(newValues.shape[0]):
-            newValue = newValues[i]
-            self.count.assign_add(getattr(np, "float%s"%conf.precision)(1.))
-            delta = newValue[0] - self.mean
-            self.mean.assign_add(delta / self.count)
-            delta2 = newValue[0] - self.mean
-            self.m2.assign_add(delta * delta2)
-
-    def result(self):
-        return tf.sqrt(self.m2 / self.count) / tf.sqrt(self.count)
 
 @tf.function
 def mi(prob_fun, var1, var2, integrate_out=None, **kwargs):

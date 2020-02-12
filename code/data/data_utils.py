@@ -272,7 +272,7 @@ class DataLoader:
             print("generated and saved data: %s" % self._file_name("data","memap"))
 
     def sample_cross_validation(self):
-        self._random_seed = conf.data_seed
+        self._random_seed = 1
         train_data, test_data = train_test_split(self.data, test_size=0.2, random_state=self._random_seed)
         train_data, validation_data = train_test_split(train_data, test_size=0.2,
                                                                  random_state=self._random_seed)

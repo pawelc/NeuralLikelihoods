@@ -4,23 +4,23 @@ import traceback
 
 import numpy as np
 import tensorflow as tf
+import tensorflow.keras as tfk
+K = tfk.backend
 
 import utils as rm_utils
 from conf import conf
-from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
-from my_log import init_logging
 from utils import resolve_dir
 
 def predict_from_model(y,x, kwargs, op_names,model):
-    init_logging(os.path.join(resolve_dir('{PROJECT_ROOT}'), "output.log"))
+    K.clear_session()
     log = logging.getLogger("predict_from_model")
     try:
         model_folder = resolve_dir(kwargs['model_dir'])
-        device = get_device(tf_conf, conf)
+        device = get_device()
 
-        log.info("using dev %s, kwargs: %s, conf: %s, tf_conf: %s, model: %s, model_folder: %s, op_names: %s",
-                 device, kwargs, conf, tf_conf, model, model_folder, op_names)
+        log.info("using dev %s, kwargs: %s, conf: %s, model: %s, model_folder: %s, op_names: %s",
+                 device, kwargs, conf, model, model_folder, op_names)
 
         log.info("date received y.shape: %s, x.shape: %s", y.shape, x.shape)
 

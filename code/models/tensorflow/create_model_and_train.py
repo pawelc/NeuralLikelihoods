@@ -11,24 +11,20 @@ import tensorflow.keras as tfk
 K = tfk.backend
 
 from models.tensorboard import Tensorboard
-from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
 from models.tensorflow.models import create_model
-from my_log import init_logging
-from utils import resolve_dir
 import sys
-from numba import cuda
 
-def prepare_data_sets(data_loader, batch_size, eval_batch_size, data_subset, log):
-    log.info("data_loader: %s, batch_size: %s, eval_batch_size: %s, data_subset: %s",
-             data_loader.name, batch_size, eval_batch_size, data_subset)
+def prepare_data_sets(data_loader, batch_size, eval_batch_size, log):
+    log.info("data_loader: %s, batch_size: %s, eval_batch_size: %s",
+             data_loader.name, batch_size, eval_batch_size)
 
-    train_y = data_loader.train_y[data_subset]
-    train_x = data_loader.train_x[data_subset]
-    validation_y = data_loader.validation_y[data_subset]
-    validation_x = data_loader.validation_x[data_subset]
-    test_y = data_loader.test_y[data_subset]
-    test_x = data_loader.test_x[data_subset]
+    train_y = data_loader.train_y
+    train_x = data_loader.train_x
+    validation_y = data_loader.validation_y
+    validation_x = data_loader.validation_x
+    test_y = data_loader.test_y
+    test_x = data_loader.test_x
 
     log.info("Training data, train_y.shape: %s, train_x.shape: %s, "
              "validation_y.shape: %s, validation_x.shape: %s, "
@@ -58,21 +54,20 @@ def prepare_data_sets(data_loader, batch_size, eval_batch_size, data_subset, log
 
 
 def create_model_and_train(kwargs, model_folder, data_loader, model, early_stop):
-    init_logging(os.path.join(model_folder, "train.log"))
+    K.clear_session()
     log = logging.getLogger("create_model_and_train")
 
     stats_model_dir = os.path.join(model_folder, "stats")
     tb = Tensorboard(stats_model_dir)
     try:
-        device = get_device(tf_conf, conf)
+        device = get_device()
 
-        log.info("Starting train for model: %s with kwargs: %s, conf: %s, tf_conf: %s, device: %s", model, kwargs,
-                 conf, tf_conf, device)
+        log.info("Starting train for model: %s with kwargs: %s, conf: %s, device: %s", model, kwargs,
+                 conf, device)
         log.info("os.environ: %s", os.environ)
 
         batch_size = kwargs["bs"]
-        data_subset = slice(conf.data_subset)
-        train_dataset, val_dataset = prepare_data_sets(data_loader, batch_size, conf.eval_batch_size,data_subset, log)
+        train_dataset, val_dataset = prepare_data_sets(data_loader, batch_size, conf.eval_batch_size, log)
 
         log.info("Building model...")
         with tf.device(device):
@@ -108,7 +103,7 @@ def create_model_and_train(kwargs, model_folder, data_loader, model, early_stop)
             )
         )
 
-        steps_per_epoch = int(np.ceil(len(data_loader.train_y[data_subset]) / batch_size))
+        steps_per_epoch = int(np.ceil(len(data_loader.train_y) / batch_size))
         model.fit(x=train_dataset, validation_data=val_dataset, verbose=False,
                   epochs=sys.maxsize if conf.max_num_epochs is None else conf.max_num_epochs,
                   steps_per_epoch=steps_per_epoch, callbacks=callbacks)
@@ -121,9 +116,6 @@ def create_model_and_train(kwargs, model_folder, data_loader, model, early_stop)
         tb.log_dict_as_table("message", {'error': error_msg})
 
     finally:
-        log.info("Closing CUDA device")
-        cuda.select_device(0)
-        cuda.close()
         tb.close()
         log.info("Train completed")
 

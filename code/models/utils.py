@@ -44,9 +44,6 @@ def save_best_model_exp(name, opt):
 
         data["hyper_param_search_results"] = opt.hyper_param_search.results
         data["hyper_param_search"] = opt.hyper_param_search.state
-
-        data["model_factory_conf"] = opt.model_factory.conf.__dict__
-
         data["conf"] = conf.__dict__
 
         json.dump(data, f, cls=NumpyEncoder, indent=4)

@@ -4,7 +4,6 @@ import numpy as np
 from data import DataLoader
 from experiment.early_stop import EarlyStop
 from models.tensorflow.compute_mi import compute_mi
-from models.tensorflow.conf import tf_conf
 from models.tensorflow.create_model_and_train import create_model_and_train
 from models.tensorflow.create_model_and_validate import create_model_and_validate
 from models.tensorflow.predict_from_model import predict_from_model
@@ -119,7 +118,3 @@ class TfTrainEvalModelFactory(TrainEvalModelFactory):
                          y_size=kwargs["y_size"])
         estimator.restore(not_exists_ok=False if 'not_exists_ok' not in kwargs else kwargs['not_exists_ok'])
         return estimator
-
-    @property
-    def conf(self):
-        return tf_conf

@@ -3,25 +3,25 @@ import os
 import traceback
 
 import tensorflow as tf
+import tensorflow.keras as tfk
+K = tfk.backend
 
 import utils as rm_utils
 from conf import conf
-from models.tensorflow.conf import tf_conf
 from models.tensorflow.compute import get_device
-from my_log import init_logging
 from utils import resolve_dir
 
 def sample_from_model(kwargs, model, size, x):
-    init_logging(os.path.join(resolve_dir('{PROJECT_ROOT}'), "output.log"))
+    K.clear_session()
     log = logging.getLogger("sample_from_model")
     try:
         model_folder = resolve_dir(kwargs['model_dir'])
 
-        log.info("sampling with parameters, conf: %s, tf_conf: %s, kwargs: %s, model_folder: %s,"
+        log.info("sampling with parameters, conf: %s, kwargs: %s, model_folder: %s,"
                  "size: %d",
-                 conf, tf_conf, kwargs, model_folder, size)
+                 conf, kwargs, model_folder, size)
 
-        device = get_device(tf_conf, conf)
+        device = get_device()
 
         log.info("device to be used: %s", device)
 

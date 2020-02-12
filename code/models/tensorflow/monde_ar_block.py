@@ -6,7 +6,6 @@ from conf import conf
 from models.tensorflow.batch_norm import batch_normalization, BatchNorm
 
 from models.tensorflow.common import TfModel
-from models.tensorflow.conf import tf_conf
 import numpy as np
 tfk = tf.keras
 
@@ -102,11 +101,9 @@ class MondeARBlockLayer(tfk.layers.Layer):
             lls = []
             for y_i in range(self._y_size):
                 cdf = cdfs[y_i]
-                if tf_conf.check_nans:
-                    cdf = tf.check_numerics(cdf, message="cdf_%d: " % y_i)
+                cdf = tf.check_numerics(cdf, message="cdf_%d: " % y_i)
                 pdf = tape.gradient(cdf, ys[y_i])
-                if tf_conf.check_nans:
-                    pdf = tf.check_numerics(pdf, message="pdf_%d: " % y_i)
+                pdf = tf.check_numerics(pdf, message="pdf_%d: " % y_i)
                 pdfs.append(pdf)
 
                 lls.append(tf.math.log(pdf + 1e-37))

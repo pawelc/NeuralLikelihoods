@@ -3,16 +3,15 @@ class Conf:
 
     def __init__(self):
         self.dir = None
-        self.max_num_epochs = -1
+        self.max_num_epochs = None
         self.num_workers = None
         self.visible_device_list = None
         self.device_placement_mapping = []
         self.shuffle_train_data = True
         self._eval_batch_size = {"0":1024, "1":1024, "CPU": 1024}
         self.precision = "32"
-        self.data_seed = 1
-        self.print_progress = False
-        self.data_subset = None
+        self.print_progress = True
+        self.per_process_gpu_memory = {'0': 256, '1': 256}
 
     @property
     def eval_batch_size(self):

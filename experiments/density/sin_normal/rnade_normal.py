@@ -5,25 +5,15 @@ from data import registry
 from experiment.early_stop import EarlyStop
 from experiment.experiment import Experiment
 from experiment.hyper_param_opt import GridSearch
-from models.tensorflow.conf import tf_conf
 from models.tensorflow.model import Model
 from models.tensorflow.tf_train_eval import TfTrainEvalModelFactory
 
 if __name__ == '__main__':
     exp = Experiment('density/sin_normal')
 
-    conf.num_workers = 1
-    conf.visible_device_list = [0, 1]
-    conf.shuffle_train_data = True
-    conf.precision = "32"
+    conf.num_workers = 20
+    conf.visible_device_list = [0,1]
     conf.eval_batch_size = {'0': 10000, '1': 10000}
-    conf.print_progress = True
-
-    tf_conf.eval_throttle_secs = 0
-    tf_conf.save_summary_epochs = 1
-    tf_conf.save_checkpoints_epochs = 1
-    tf_conf.check_nans = True
-    tf_conf.start_eval_step = 1
 
     exp.data_loader = registry.sin_normal_noise()
 

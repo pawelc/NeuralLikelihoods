@@ -11,7 +11,6 @@ from experiment.early_stop import EarlyStop
 import numpy as np
 import os
 
-from my_log import init_logging
 from utils import resolve_dir, get_class
 
 def get_stats(log_likelihood):
@@ -26,7 +25,6 @@ class Estimator:
         self.y_size = y_size
         self.resolved_model_dir = resolved_model_dir
         self.log = logging.getLogger("estimator")
-        init_logging(os.path.join(resolve_dir('{PROJECT_ROOT}'), "output.log"))
         self.log.info("Created estimator for model: %s, resolved_model_dir: %s, params: %s,"
                       "x_size: %d, y_size: %d",
                       model, resolved_model_dir, params, x_size, y_size)
@@ -71,10 +69,6 @@ class TrainEvalModelFactory:
         raise NotImplemented
 
     def predict_estimator(self, estimator, batch, batch_size):
-        raise NotImplemented
-
-    @property
-    def conf(self):
         raise NotImplemented
 
     @property
@@ -141,7 +135,6 @@ class TrainEvalModel:
         model_dir = self.model_dir(**kwargs)
         resolved_dir = resolve_dir(model_dir)
 
-        init_logging(os.path.join(resolved_dir, "train.log"))
         self.log = logging.getLogger(self.__class__.__name__)
 
         stats_model_dir = resolve_dir(os.path.join(model_dir, "stats"))
@@ -151,7 +144,7 @@ class TrainEvalModel:
             os.makedirs(stats_model_dir, exist_ok=True)
 
             tb.log_dict_as_table("conf", conf.__dict__)
-            tb.log_dict_as_table("model_conf", self.factory.conf.__dict__)
+            tb.log_dict_as_table("model_conf", conf.__dict__)
             tb.log_dict_as_table("early_stopping", self.early_stopping.__dict__)
 
             model_dir, train_stats, validation_stats, test_stats = self.call_me(model_dir, *varg, **kwargs)
@@ -164,7 +157,7 @@ class TrainEvalModel:
 
         except Exception:
             error_msg = traceback.format_exc()
-            self.log.errir(error_msg)
+            self.log.error(error_msg)
             tb.log_dict_as_table("message", {'error': error_msg})
             self.log_error(kwargs, resolved_dir)
             return None, None, None, None

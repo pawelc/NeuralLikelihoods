@@ -13,9 +13,9 @@ from data import DataLoader
 from experiment.early_stop import EarlyStop
 from experiment.hyper_param_opt import HyperParamSearch
 from experiment.progress import ProgressMonitor, NoOpProgressMonitor
-from models.tensorflow.conf import tf_conf
 from models.train_eval import TrainEvalModelFactory, Estimator
 from models.utils import save_best_model_exp, experiment_file
+from my_log import init_logging
 from utils import resolve_dir
 import numpy as np
 
@@ -38,8 +38,9 @@ class Experiment:
         self.data_set_info = None
 
         conf.dir = os.path.join('{ROOT}', experiment_name)
-        os.makedirs(resolve_dir(conf.dir), exist_ok=True)
-        self.log = logging.getLogger("experiment")
+        resolved_dir = resolve_dir(conf.dir)
+        os.makedirs(resolved_dir, exist_ok=True)
+        self.log = None
 
     @property
     def data_loader(self) -> DataLoader:
@@ -141,8 +142,8 @@ class Experiment:
                 v['bounds'] = new_elements
 
         if complain_on_diff:
-            affecting_experiment = self.model_factory.conf.values_affecting_experiment()
-            if affecting_experiment != {key: value for key, value in data["model_factory_conf"].items() if
+            affecting_experiment = conf.values_affecting_experiment()
+            if affecting_experiment != {key: value for key, value in data["conf"].items() if
                                         key in affecting_experiment}:
                 raise ValueError("Running model factory conf different than loaded one")
 
@@ -192,9 +193,7 @@ class Experiment:
         return best_model.evaluate(data_set)
 
     def eval_best_model(self, data_set):
-        return invoke_in_process_pool("eval_best_model",
-                                      0 if isinstance(self.model_factory, TfEagerTrainEvalModelFactory) else 1,
-                                      Callable(self._eval_best_model, data_set))[0]
+        return invoke_in_process_pool("eval_best_model",1, Callable(self._eval_best_model, data_set))[0]
 
     def _predict_best_model(self, data_loader, data, collector, params={}, op_names=[]):
         best_model = self._load_best_model()
@@ -218,7 +217,7 @@ class Experiment:
 
     def predict_best_model(self, data, collector, params={}, num_workers=None, op_names=[]):
         if num_workers is None:
-            num_workers = 0 if isinstance(self.model_factory, TfEagerTrainEvalModelFactory) else 1
+            num_workers = 1
 
         return invoke_in_process_pool("predict_best_model", num_workers,
                                       Callable(self._predict_best_model, self.data_loader, data, collector, params, op_names))[0]
@@ -232,6 +231,8 @@ class Experiment:
         return invoke_in_process_pool("compute_mi", 0 ,Callable(self._compute_mi, z, kwargs))[0]
 
     def run(self):
+        init_logging(os.path.join(resolve_dir(conf.dir), "output_{}.log".format(self.model_factory.model.name())))
+        self.log = logging.getLogger("experiment")
         try:
             self.load(complain_on_diff=True)
             print("Loaded %s" % os.path.join(resolve_dir(conf.dir), experiment_file(self.model_factory.model_name)))
@@ -293,10 +294,10 @@ class Experiment:
                                 break
 
                         allowed_device_assignment = {k: v for k, v in device_assignment.items() if
-                                                     k in allowed_devices and v + tf_conf.per_process_gpu_memory_fraction <= 1.01}
+                                                     k in allowed_devices}
                         if len(allowed_device_assignment) > 0:
                             device = sorted([(t[1], t[0]) for t in list(allowed_device_assignment.items())])[0][1]
-                            device_assignment[device] += tf_conf.per_process_gpu_memory_fraction
+                            device_assignment[device] += 1
                             next_wi.objective_fun.conf_override.visible_device_list = [device]
                             submit = True
 
@@ -319,8 +320,7 @@ class Experiment:
                         model_dir, train_eval, validation_eval, test_eval = wi.future.result(0)
 
                         if len(device_assignment) > 0:
-                            device_assignment[wi.objective_fun.conf_override.visible_device_list[
-                                0]] -= tf_conf.per_process_gpu_memory_fraction
+                            device_assignment[wi.objective_fun.conf_override.visible_device_list[0]] -= 1
                             if abs(device_assignment[wi.objective_fun.conf_override.visible_device_list[0]]) < 1e-2:
                                 device_assignment[wi.objective_fun.conf_override.visible_device_list[0]] = 0
 

@@ -34,10 +34,10 @@ def mixture_of_experts(**kwargs):
     data_loader.load_data()
     return data_loader
 
-def sin_normal_noise():
+def sin_normal_noise(**kwargs):
     data_loader = data.TfGenerator(name="sin_normal_noise", x_slice=slice(None,1), y_slice=slice(1,None), samples=10000,
                                    op_factory_y=SinusoidFactory("normal"),
-                                   op_factory_x=UniformFactory(low=-1.5, high=1.5))
+                                   op_factory_x=UniformFactory(low=-1.5, high=1.5), **kwargs)
     data_loader.load_data()
     return data_loader
 
