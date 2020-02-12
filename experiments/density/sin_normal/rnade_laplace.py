@@ -17,7 +17,7 @@ if __name__ == '__main__':
 
     exp.data_loader = registry.sin_normal_noise()
 
-    exp.model_factory = TfTrainEvalModelFactory(Model(name="RNADE_normal"))
+    exp.model_factory = TfTrainEvalModelFactory(Model(name="RNADE_laplace"))
 
     exp.hyper_param_search = GridSearch([
         Categorical([1,20,50,100,150,200], name='km'),
@@ -27,7 +27,7 @@ if __name__ == '__main__':
         Categorical([1], name='rs'),
 
         Categorical(['AdamOptimizer'], name='opt'),
-        Categorical([1e-3], name='opt_lr'),
+        Categorical([1e-4,1e-3,1e-2], name='opt_lr'),
     ])
 
     exp.early_stopping = EarlyStop(monitor_every_epoch=1, patience=[30])

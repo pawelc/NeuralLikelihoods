@@ -46,7 +46,7 @@ def prepare_data_sets(data_loader, batch_size, eval_batch_size, log):
             np.zeros((len(validation_y), 0), dtype=np.float32)
         )
     )
-    val_dataset = val_dataset.repeat(1)
+    val_dataset = val_dataset.repeat(None)
     val_dataset = val_dataset.prefetch(3 * eval_batch_size)
     val_dataset = val_dataset.batch(eval_batch_size)
 
@@ -104,8 +104,9 @@ def create_model_and_train(kwargs, model_folder, data_loader, model, early_stop)
         )
 
         steps_per_epoch = int(np.ceil(len(data_loader.train_y) / batch_size))
-        model.fit(x=train_dataset, validation_data=val_dataset, verbose=False,
-                  epochs=sys.maxsize if conf.max_num_epochs is None else conf.max_num_epochs,
+        validation_steps = int(np.ceil(float(len(data_loader.validation_y)) / float(conf.eval_batch_size)))
+        model.fit(x=train_dataset, validation_data=val_dataset, validation_steps=validation_steps,
+                  verbose=False, epochs=sys.maxsize if conf.max_num_epochs is None else conf.max_num_epochs,
                   steps_per_epoch=steps_per_epoch, callbacks=callbacks)
 
         log.info("model trained")
