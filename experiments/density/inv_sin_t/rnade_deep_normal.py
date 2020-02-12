@@ -9,23 +9,20 @@ from models.tensorflow.model import Model
 from models.tensorflow.tf_train_eval import TfTrainEvalModelFactory
 
 if __name__ == '__main__':
-    exp = Experiment('density/sin_normal')
+    exp = Experiment('density/inv_sin_t')
 
     conf.num_workers = 4
     conf.visible_device_list = [0,1]
     conf.eval_batch_size = {'0': 10000, '1': 10000}
 
-    exp.data_loader = registry.sin_normal_noise()
+    exp.data_loader = registry.inv_sin_t()
 
-    exp.model_factory = TfTrainEvalModelFactory(Model(name="MONDE_AR_MADE"))
+    exp.model_factory = TfTrainEvalModelFactory(Model(name="RNADE_deep_normal"))
 
     exp.hyper_param_search = GridSearch([
-        Categorical(['sigm'], name='tr'),
-
-        Categorical([32, 64, 128], name='sh'),
-        Categorical([1,2,3], name='nh'),
-
-        Categorical([16], name='xs'),
+        Categorical([1, 16, 32, 64, 128], name='km'),
+        Categorical([1, 16, 32, 64, 128], name='sh'),
+        Categorical([1, 2, 3, 4, 5], name='nh'),
 
         Categorical([128], name='bs'),
         Categorical([1], name='rs'),

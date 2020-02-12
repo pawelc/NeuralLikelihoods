@@ -1,6 +1,7 @@
 from models.tensorflow.maf import MAF
 from models.tensorflow.mdn import MDN
 from models.tensorflow.monde import MONDE
+from models.tensorflow.monde_ar_made import MondeARMADE
 from models.tensorflow.pumonde_pfor import PumondePFor
 from models.tensorflow.rnade import Rnade
 from models.tensorflow.rnade_deep import RnadeDeep
@@ -36,6 +37,6 @@ def create_model(model_name:str, kwargs):
     elif model_name.startswith("MONDE_AR_MADE"):
         params = {'transform': kwargs['tr'], 'arch': [kwargs['sh']]* kwargs['nh'],
                   'x_transform_size': kwargs['xs']}
-        return MONDE(**params)
+        return MondeARMADE(**params)
     else:
         raise ValueError("model not recognized: " + model_name)

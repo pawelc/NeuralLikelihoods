@@ -9,23 +9,24 @@ from models.tensorflow.model import Model
 from models.tensorflow.tf_train_eval import TfTrainEvalModelFactory
 
 if __name__ == '__main__':
-    exp = Experiment('density/sin_normal')
+    exp = Experiment('density/inv_sin_normal')
 
     conf.num_workers = 4
     conf.visible_device_list = [0,1]
     conf.eval_batch_size = {'0': 10000, '1': 10000}
 
-    exp.data_loader = registry.sin_normal_noise()
+    exp.data_loader = registry.inv_sin_normal()
 
-    exp.model_factory = TfTrainEvalModelFactory(Model(name="MONDE_AR_MADE"))
+    exp.model_factory = TfTrainEvalModelFactory(Model(name="MONDE_copula_const_cov"))
 
     exp.hyper_param_search = GridSearch([
-        Categorical(['sigm'], name='tr'),
+        Categorical([32, 64,128], name='hxy_sh'),
+        Categorical([1,2,3], name='hxy_nh'),
 
-        Categorical([32, 64, 128], name='sh'),
-        Categorical([1,2,3], name='nh'),
+        Categorical([32, 64, 128], name='x_sh'),
+        Categorical([1,2,3], name='x_nh'),
 
-        Categorical([16], name='xs'),
+        Categorical([16,32], name='hxy_x'),
 
         Categorical([128], name='bs'),
         Categorical([1], name='rs'),
