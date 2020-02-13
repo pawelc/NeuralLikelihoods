@@ -1,6 +1,8 @@
 from models.tensorflow.maf import MAF
 from models.tensorflow.mdn import MDN
 from models.tensorflow.monde import MONDE
+from models.tensorflow.monde_ar import MondeAR
+from models.tensorflow.monde_ar_block import MondeARBlock
 from models.tensorflow.monde_ar_made import MondeARMADE
 from models.tensorflow.pumonde_pfor import PumondePFor
 from models.tensorflow.rnade import Rnade
@@ -30,13 +32,26 @@ def create_model(model_name:str, kwargs):
     elif model_name.startswith("RNADE"):
         params = {'k_mix': kwargs['km'], 'hidden_units': kwargs['sh'], 'component_distribution': model_name[6:]}
         return Rnade(**params)
-    elif model_name.startswith("MONDE_copula_const_cov"):
+    elif model_name == "MONDE_copula_const_cov":
         params = {'cov_type': 'const_cov', 'arch_hxy': [kwargs['hxy_sh']]* kwargs['hxy_nh'],
-                  'arch_x_transform': [kwargs['x_sh']]* kwargs['x_nh'], 'hxy_x_size': kwargs['hxy_x']}
+                  'arch_x_transform': [kwargs['x_sh']]* kwargs['x_nh'], 'hxy_x_size': kwargs['hxy_x'],
+                  'covariance_learning_rate': kwargs['clr']}
         return MONDE(**params)
-    elif model_name.startswith("MONDE_AR_MADE"):
+    elif model_name == "MONDE_copula_param_cov":
+        params = {'cov_type': 'param_cov', 'arch_hxy': [kwargs['hxy_sh']]* kwargs['hxy_nh'],
+                  'arch_x_transform': [kwargs['x_sh']]* kwargs['x_nh'], 'hxy_x_size': kwargs['hxy_x'],
+                  'arch_cov_transform': [kwargs['cov_sh']]* kwargs['cov_nh']}
+        return MONDE(**params)
+    elif model_name == "MONDE_AR":
+        params = { 'arch_x_transform': [kwargs['x_sh']]* kwargs['x_nh'],
+                  'arch_hxy': [kwargs['hxy_sh']]* kwargs['hxy_nh']}
+        return MondeAR(**params)
+    elif model_name == "MONDE_AR_MADE":
         params = {'transform': kwargs['tr'], 'arch': [kwargs['sh']]* kwargs['nh'],
                   'x_transform_size': kwargs['xs']}
         return MondeARMADE(**params)
+    elif model_name == "MONDE_AR_BLOCK":
+        params = {'num_layers': kwargs['nl'], 'num_blocks': kwargs['nb'], 'transform': kwargs['tr']}
+        return MondeARBlock(**params)
     else:
         raise ValueError("model not recognized: " + model_name)
