@@ -389,7 +389,7 @@ class DataLoader:
                                               density_kwds={'color': 'black'})
 
             plt.tight_layout()
-            plt.savefig('/home/pawel/data.png')
+            plt.savefig('data.png')
             # if show:
             #     plt.show();
             # return axes

@@ -234,7 +234,7 @@ class ExperimentVis:
                                               density_kwds={'color': 'black'})
 
             plt.tight_layout()
-            plt.savefig('/home/pawel/samples.png')
+            plt.savefig('{ROOT}/samples.png')
             # if show:
             #     plt.show();
             return axes
